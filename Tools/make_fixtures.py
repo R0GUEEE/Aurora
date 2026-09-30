@@ -280,8 +280,11 @@ def render(entries):
 
 
 def main():
-    if os.path.isdir(FIXTURES):
-        shutil.rmtree(FIXTURES)
+    # Only the generated tree is cleared: Fixtures/version-vectors.tsv is the
+    # dpkg-derived table produced by Tools/fuzz_version_order.py and must survive
+    # a fixture regeneration, or CI's reproducibility check would see it vanish.
+    if os.path.isdir(PACKAGES_DIR):
+        shutil.rmtree(PACKAGES_DIR)
     os.makedirs(PACKAGES_DIR)
 
     packages = render(add_download_metadata(PACKAGES)).encode()
