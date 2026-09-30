@@ -11,11 +11,18 @@ public enum ZlibBridge {
     public enum Error: Swift.Error, CustomStringConvertible {
         case initFailed(Int32)
         case inflateFailed(Int32)
+        /// The input ran out before the stream ended. This must be an error and
+        /// not a short result: a truncated `Packages.gz` would otherwise parse as
+        /// a smaller index, and a repository without a `Release` file has no
+        /// checksum to catch that.
+        case truncatedStream(produced: Int)
 
         public var description: String {
             switch self {
             case .initFailed(let code): return "zlib could not initialise the stream (code \(code))"
             case .inflateFailed(let code): return "zlib could not decompress the data (code \(code))"
+            case .truncatedStream(let produced):
+                return "the compressed data ends in the middle of the stream (got \(produced) bytes)"
             }
         }
     }
@@ -57,6 +64,11 @@ public enum ZlibBridge {
             }
         }
 
+        // Only a complete stream is a success. `Z_OK`/`Z_BUF_ERROR` here mean the
+        // input ended early, which is corruption, not a shorter file.
+        guard status == Z_STREAM_END else {
+            throw Error.truncatedStream(produced: output.count)
+        }
         return output
     }
 

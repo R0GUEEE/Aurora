@@ -92,11 +92,17 @@ public struct PackageIndex: Sendable {
         return matches.first
     }
 
-    /// Newest-first by version, then by name so that output is deterministic.
+    /// Newest-first by version, then by name, then by repository.
+    ///
+    /// The repository tie-break is not decorative: `sorted(by:)` is not guaranteed
+    /// to be stable, so without a total order the same package could be picked
+    /// from a different repository between runs, which would make resolution — and
+    /// therefore the whole transaction — non-deterministic.
     static func isPreferred(_ lhs: PackageRecord, _ rhs: PackageRecord) -> Bool {
         let order = DebianVersion.compare(lhs.version, rhs.version)
         if order != 0 { return order > 0 }
-        return lhs.name < rhs.name
+        if lhs.name != rhs.name { return lhs.name < rhs.name }
+        return (lhs.origin?.description ?? "") < (rhs.origin?.description ?? "")
     }
 
     // MARK: - Search and browsing

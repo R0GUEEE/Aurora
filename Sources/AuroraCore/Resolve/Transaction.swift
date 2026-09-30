@@ -61,19 +61,28 @@ public enum PackageAction: Hashable, Sendable {
     }
 
     /// The action that undoes this one, for the "reset" button in the queue.
+    ///
+    /// The kind is the *opposite* of what is staged: undoing a staged downgrade
+    /// means upgrading back to what is installed, and undoing an upgrade means
+    /// staging the downgrade back to it. Getting this backwards makes the reset
+    /// button emit a transaction the resolver refuses.
     public func inverted(installed: InstalledPackage?) -> PackageAction? {
         switch self {
         case .remove(let name, _):
+            _ = name
             guard let installed else { return nil }
             return .reinstall(installed.record)
         case .install(let record), .reinstall(let record), .downgrade(let record), .upgrade(let record):
             guard let installed else { return nil }
-            if installed.version == record.version {
+            switch DebianVersion.compare(installed.version, record.version) {
+            case 0:
                 return .reinstall(installed.record)
+            case 1:
+                // The staged action goes backwards, so undoing it goes forwards.
+                return .upgrade(installed.record)
+            default:
+                return .downgrade(installed.record)
             }
-            return installed.version > record.version
-                ? .downgrade(installed.record)
-                : .upgrade(installed.record)
         }
     }
 }
