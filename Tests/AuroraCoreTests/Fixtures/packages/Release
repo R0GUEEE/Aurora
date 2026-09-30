@@ -1,0 +1,18 @@
+Origin: Aurora Test Fixtures
+Label: Aurora
+Suite: stable
+Version: 1.0
+Codename: stable
+Architectures: iphoneos-arm64 iphoneos-arm
+Components: main
+Description: Fixtures for the AuroraCore test suite
+Date: Fri, 26 Sep 2026 12:00:00 UTC
+Valid-Until: Fri, 26 Sep 2031 12:00:00 UTC
+SHA256:
+ b268e2b9bd7be179ad7e8b2cc22aad4841e3f0bafde8986bdc1186093d052b5b 6329 main/binary-iphoneos-arm64/Packages
+ e669844dd99055383db2ee9b9b464c7560245d82aab9432e7294f934fb7b85dc 2147 main/binary-iphoneos-arm64/Packages.gz
+ 388b3e437d75d87671c0af3d2eee42151af7c7745a27d2fdefb86dd15c69af85 2096 main/binary-iphoneos-arm64/Packages.xz
+MD5Sum:
+ 6920a65f3962f67284d644232fb73bd1 6329 main/binary-iphoneos-arm64/Packages
+ 1bcfea3758006076e4fa741fad2fbea6 2147 main/binary-iphoneos-arm64/Packages.gz
+ 73621ca82b6b8ea12577b518c73ee9be 2096 main/binary-iphoneos-arm64/Packages.xz

@@ -1,0 +1,14 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA256
+
+Origin: Aurora Test Fixtures
+Label: Aurora
+Suite: stable
+- - this line was dash-escaped by the signer
+SHA256:
+ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 100 main/binary-iphoneos-arm64/Packages
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEfakesignaturefakesignaturefakesignatureFAs=
+=fake
+-----END PGP SIGNATURE-----

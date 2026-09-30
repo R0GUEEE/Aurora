@@ -1,0 +1,53 @@
+Package: bash
+Status: install ok installed
+Version: 5.2.15-2
+Architecture: iphoneos-arm64
+Essential: yes
+Installed-Size: 1580
+Description: The GNU Bourne Again SHell
+
+Package: coreutils
+Status: install ok installed
+Version: 9.1-1
+Architecture: iphoneos-arm64
+Depends: bash (>= 5.0)
+Installed-Size: 4200
+Description: Core utilities
+
+Package: libfoo1
+Status: install ok installed
+Version: 1.4.2-3
+Architecture: iphoneos-arm64
+Installed-Size: 312
+Description: Shared library used by the test fixtures
+
+Package: foo-app
+Status: install ok installed
+Version: 1.9.0-1
+Architecture: iphoneos-arm64
+Depends: libfoo1 (>= 1.0), bash
+Installed-Size: 2000
+Description: Fixture application
+
+Package: oldapp
+Status: install ok installed
+Version: 1.0-1
+Architecture: iphoneos-arm64
+Installed-Size: 100
+Description: Obsolete package
+
+Package: halfbroken
+Status: install ok half-configured
+Version: 0.1-1
+Architecture: iphoneos-arm64
+Installed-Size: 12
+Conffiles: 
+  /etc/halfbroken.conf deadbeef
+Description: Installed but never configured
+
+Package: goneconf
+Status: deinstall ok config-files
+Version: 0.2-1
+Architecture: iphoneos-arm64
+Installed-Size: 8
+Description: Removed, configuration files kept

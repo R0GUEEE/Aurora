@@ -1,0 +1,19 @@
+# SwiftPM
+.build/
+.swiftpm/
+
+# Xcode / XcodeGen
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+App/Aurora.xcodeproj/
+build/
+
+# macOS
+.DS_Store
+
+# Packaging output
+*.deb
+!Tests/AuroraCoreTests/Fixtures/**/*.deb
+Packaging/build/
+Aurora.app/

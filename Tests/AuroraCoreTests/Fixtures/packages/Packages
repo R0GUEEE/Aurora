@@ -1,0 +1,209 @@
+Package: bash
+Version: 5.2.15-2
+Architecture: iphoneos-arm64
+Essential: yes
+Section: shells
+Installed-Size: 1580
+Maintainer: Procursus Team <team@procursus.org>
+Description: The GNU Bourne Again SHell
+  A shell that everything else assumes is present.
+Filename: pool/main/b/bash_5.2.15-2_iphoneos-arm64.deb
+Size: 478096
+SHA256: 98222bfb812a40cef6a71fd248574795ef439f9546a6426ebf34f2a585fa6c58
+MD5sum: dc130e39c38c0201f220178ab27a79ac
+
+Package: coreutils
+Version: 9.1-1
+Architecture: iphoneos-arm64
+Section: utils
+Installed-Size: 4200
+Maintainer: Procursus Team <team@procursus.org>
+Depends: bash (>= 5.0)
+Description: Core utilities
+Filename: pool/main/c/coreutils_9.1-1_iphoneos-arm64.deb
+Size: 1264096
+SHA256: 729ebee4460168b33bdd563863852dc0e79b260aab4aa3839eaa881b5aa9efea
+MD5sum: 3c5c28af2f263f5528035299ec738936
+
+Package: libfoo1
+Version: 1.4.2-3
+Architecture: iphoneos-arm64
+Section: libs
+Installed-Size: 312
+Maintainer: Aurora Test <test@example.invalid>
+Description: Shared library used by the test fixtures
+Filename: pool/main/l/libfoo1_1.4.2-3_iphoneos-arm64.deb
+Size: 97696
+SHA256: 6bfee96b2eb06ad1c2ed333a9b7e1008da0c73c756c321adaca444708d6c21fb
+MD5sum: 3d4c80487ae724160b9841a659361647
+
+Package: foo-app
+Version: 2.0.0-1
+Architecture: iphoneos-arm64
+Section: utils
+Installed-Size: 2048
+Depends: libfoo1 (>= 1.4), bash
+Suggests: foo-extras
+Maintainer: Aurora Test <test@example.invalid>
+Description: Fixture application
+  Upgradable, and needs libfoo1.
+Filename: pool/main/f/foo-app_2.0.0-1_iphoneos-arm64.deb
+Size: 618496
+SHA256: 9eeadfdfb2b814670c967444f2dfab9a83d285aa8cc3ed08c630e76c475063ac
+MD5sum: b6113fd2e3dadda29ff5726fa4b5be99
+
+Package: foo-app
+Version: 1.9.0-1
+Architecture: iphoneos-arm64
+Section: utils
+Installed-Size: 2000
+Depends: libfoo1 (>= 1.0), bash
+Maintainer: Aurora Test <test@example.invalid>
+Description: Fixture application (older version)
+Filename: pool/main/f/foo-app_1.9.0-1_iphoneos-arm64.deb
+Size: 604096
+SHA256: a8c6eeb5e168a78abf4e360fae6d079d03f9d9adad32cbe9a6092810ee8af5f8
+MD5sum: 1694c4d92a664fef4a48aa5c2b5fd3c8
+
+Package: newapp
+Version: 0.5-1
+Architecture: iphoneos-arm64
+Section: utils
+Installed-Size: 120
+Depends: libfoo1 (>= 1.0) | libbar1
+Conflicts: oldapp
+Replaces: oldapp
+Maintainer: Aurora Test <test@example.invalid>
+Description: Takes over files from oldapp
+Filename: pool/main/n/newapp_0.5-1_iphoneos-arm64.deb
+Size: 40096
+SHA256: ae8d76766c236888d2043f3a41892516bb648d44d2fb7542247a8835d3c00a58
+MD5sum: b1860abef3a8c38b3d43212c2a432703
+
+Package: oldapp
+Version: 1.0-1
+Architecture: iphoneos-arm64
+Section: utils
+Installed-Size: 100
+Maintainer: Aurora Test <test@example.invalid>
+Description: Obsolete package
+Filename: pool/main/o/oldapp_1.0-1_iphoneos-arm64.deb
+Size: 34096
+SHA256: 067e08b4e47c02ca524d97570780f597b3ac7135ac706768e272030a9ab80788
+MD5sum: 37d78d977bc8e21f4c20400df69333ba
+
+Package: plugin
+Version: 3.1-1
+Architecture: iphoneos-arm64
+Section: tweaks
+Installed-Size: 64
+Depends: foo-app (>= 2.0)
+Recommends: coreutils
+Maintainer: Aurora Test <test@example.invalid>
+Description: Depends on the newest foo-app
+Filename: pool/main/p/plugin_3.1-1_iphoneos-arm64.deb
+Size: 23296
+SHA256: 0f237e09164dbb5f3dde9b3e24b8f79df5dbc13a0995cfd44db8c856deeb33c4
+MD5sum: ad2850ab28f4f500c74172a8bc325b00
+
+Package: plugin
+Version: 3.0-1
+Architecture: iphoneos-arm64
+Section: tweaks
+Installed-Size: 60
+Depends: foo-app (>= 1.0)
+Maintainer: Aurora Test <test@example.invalid>
+Description: Older plugin
+Filename: pool/main/p/plugin_3.0-1_iphoneos-arm64.deb
+Size: 22096
+SHA256: 9683ee50ef0cfac363347c6121ca8b701459e2800af86f37183182678041f71e
+MD5sum: 871cbfc810ca8468424e2489745d34ac
+
+Package: mailserver
+Version: 7.2-1
+Architecture: iphoneos-arm64
+Section: mail
+Installed-Size: 500
+Provides: mail-transport-agent (= 7.2)
+Maintainer: Aurora Test <test@example.invalid>
+Description: Provides the mail-transport-agent virtual name
+Filename: pool/main/m/mailserver_7.2-1_iphoneos-arm64.deb
+Size: 154096
+SHA256: 843e06562be8fe5e4b6eba60dacc87423afca61953a78441cd2c9f693cc10a01
+MD5sum: 42f0d57ec0b101dad80628d77fda0651
+
+Package: mailclient
+Version: 1.1-1
+Architecture: iphoneos-arm64
+Section: mail
+Installed-Size: 900
+Depends: mail-transport-agent
+Maintainer: Aurora Test <test@example.invalid>
+Description: Needs a mail transport agent
+Filename: pool/main/m/mailclient_1.1-1_iphoneos-arm64.deb
+Size: 274096
+SHA256: 8cafbb221b6a547af995193dc4cb81b1fc2d2143496100be1b4352355235df91
+MD5sum: 77002b2ee13ab58b0f304c98971f51a8
+
+Package: brokenapp
+Version: 1.0-1
+Architecture: iphoneos-arm64
+Section: utils
+Installed-Size: 10
+Depends: does-not-exist (>= 1)
+Maintainer: Aurora Test <test@example.invalid>
+Description: Cannot be installed
+Filename: pool/main/b/brokenapp_1.0-1_iphoneos-arm64.deb
+Size: 7096
+SHA256: ab47c6c355683c6111d1ccae6e5ab991eb9f2c69c925817aa406c1f380406d67
+MD5sum: 6a5285c877c5cc88cf642c5da31f335b
+
+Package: cyc-a
+Version: 1.0-1
+Architecture: iphoneos-arm64
+Section: utils
+Installed-Size: 10
+Depends: cyc-b
+Maintainer: Aurora Test <test@example.invalid>
+Description: Half of a dependency cycle
+Filename: pool/main/c/cyc-a_1.0-1_iphoneos-arm64.deb
+Size: 7096
+SHA256: 05135df92d101895eefda3dce23422296fbc2a3a8ef8005bca0ae736d57acff8
+MD5sum: 1a3f364a5bb1094452347403601400cb
+
+Package: cyc-b
+Version: 1.0-1
+Architecture: iphoneos-arm64
+Section: utils
+Installed-Size: 10
+Depends: cyc-a
+Maintainer: Aurora Test <test@example.invalid>
+Description: The other half
+Filename: pool/main/c/cyc-b_1.0-1_iphoneos-arm64.deb
+Size: 7096
+SHA256: 0c62cfff035a94639b0459f448f1a412fc03f9434b19bd82f390af2afb27c574
+MD5sum: d8d43708a746f93a2d32f9712bbd688d
+
+Package: arch-all-tool
+Version: 1.0-1
+Architecture: all
+Section: utils
+Installed-Size: 20
+Maintainer: Aurora Test <test@example.invalid>
+Description: Architecture-independent package
+Filename: pool/main/a/arch-all-tool_1.0-1_all.deb
+Size: 10096
+SHA256: b4e3bea9b52376b0c4a2f9ecc70cde7ae671d62c088a6c1ecbe4a35b978ffac4
+MD5sum: 543d0a23ff4f46370805eca20c86f7d3
+
+Package: legacy-tweak
+Version: 0.9-1
+Architecture: iphoneos-arm
+Section: tweaks
+Installed-Size: 40
+Maintainer: Aurora Test <test@example.invalid>
+Description: Rootful-era architecture
+Filename: pool/main/l/legacy-tweak_0.9-1_iphoneos-arm.deb
+Size: 16096
+SHA256: a1375a62ab76c59680d784ac7171e0b105c9fb927c5bc3d1eaffe27d4601aa98
+MD5sum: 65d2d19a3c3a8c79a6bcad61a7f57337
