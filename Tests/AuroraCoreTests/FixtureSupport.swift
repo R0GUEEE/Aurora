@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+@testable import AuroraCore
 
 /// Locates the files copied into the test bundle by the target's
 /// `resources: [.copy("Fixtures")]` declaration.
