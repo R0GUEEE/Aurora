@@ -101,7 +101,9 @@ public struct DebArchive {
                 name = String(name.split(separator: "/").first ?? "")
             }
 
-            guard size >= 0, dataOffset + size <= fileSize(of: handle) else {
+            // Static, not an instance method: this runs inside `init` before every
+            // stored property has a value, and `self` is not usable until then.
+            guard size >= 0, dataOffset + size <= Self.fileSize(of: handle) else {
                 throw Error.truncated("member \(name)")
             }
             members.append(Member(name: name, offset: dataOffset, size: size))
@@ -117,7 +119,7 @@ public struct DebArchive {
         self.members = members
     }
 
-    private func fileSize(of handle: FileHandle) -> Int64 {
+    private static func fileSize(of handle: FileHandle) -> Int64 {
         let current = (try? handle.offset()) ?? 0
         let end = (try? handle.seekToEnd()) ?? 0
         try? handle.seek(toOffset: current)
