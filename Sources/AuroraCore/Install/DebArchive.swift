@@ -102,7 +102,7 @@ public struct DebArchive {
             }
 
             guard size >= 0, dataOffset + size <= fileSize(of: handle) else {
-                throw Error.truncated("member "\(name)"")
+                throw Error.truncated("member \(name)")
             }
             members.append(Member(name: name, offset: dataOffset, size: size))
             // Members are padded to an even offset.

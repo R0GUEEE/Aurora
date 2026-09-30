@@ -122,11 +122,15 @@ public actor InstallEngine {
                 found: version.raw
             )
         }
-        guard !stanza.string("Architecture").map({ $0 != "all" && $0 != record.architecture }) ?? false else {
+        // `all` is compatible with any architecture; anything else must match the
+        // record the plan was computed for.
+        if let architecture = stanza.string("Architecture"),
+           architecture != "all",
+           architecture != record.architecture {
             throw InstallError.archiveMismatch(
                 path: path,
                 expected: record.architecture,
-                found: stanza.string("Architecture") ?? "?"
+                found: architecture
             )
         }
     }
