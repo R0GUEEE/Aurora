@@ -44,6 +44,16 @@ public enum ProcessError: Error, CustomStringConvertible {
     }
 }
 
+#if canImport(Darwin)
+/// Darwin declares `posix_spawn_file_actions_t` as `void *`, so it imports into
+/// Swift as a raw pointer and has to be nil-initialised rather than constructed.
+/// glibc and musl use a real struct. This typealias is the only place in the
+/// package that has to know the difference.
+private typealias AuroraFileActions = posix_spawn_file_actions_t?
+#else
+private typealias AuroraFileActions = posix_spawn_file_actions_t
+#endif
+
 /// Runs helper binaries.
 ///
 /// `Foundation.Process` does not exist on iOS, so this goes through
@@ -60,6 +70,15 @@ public enum ProcessRunner {
             return false
         }
         return access(path, X_OK) == 0
+    }
+
+    /// A zeroed file-actions value for the platform's typedef.
+    private static func defaultFileActions() -> AuroraFileActions {
+        #if canImport(Darwin)
+        return nil
+        #else
+        return posix_spawn_file_actions_t()
+        #endif
     }
 
     /// First executable match in `searchPaths`, in order.
@@ -98,7 +117,7 @@ public enum ProcessRunner {
             throw ProcessError.pipeFailed(errno)
         }
 
-        var actions = posix_spawn_file_actions_t()
+        var actions = ProcessRunner.defaultFileActions()
         posix_spawn_file_actions_init(&actions)
         posix_spawn_file_actions_adddup2(&actions, stdoutPipe[1], STDOUT_FILENO)
         posix_spawn_file_actions_adddup2(&actions, stderrPipe[1], STDERR_FILENO)
@@ -175,8 +194,10 @@ public enum ProcessRunner {
 
             for index in descriptors.indices.reversed() {
                 let descriptor = descriptors[index].fd
-                let mask: Int16 = POLLIN | POLLHUP | POLLERR
-                guard descriptors[index].revents & mask != 0 else { continue }
+                // POLLIN and friends are Int32 on Darwin and Int16 in revents, so
+                // both sides are compared in Int32.
+                let mask = Int32(POLLIN | POLLHUP | POLLERR)
+                guard Int32(descriptors[index].revents) & mask != 0 else { continue }
                 var buffer = [UInt8](repeating: 0, count: 64 * 1024)
                 let count = read(descriptor, &buffer, buffer.count)
                 if count > 0 {

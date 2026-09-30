@@ -83,7 +83,7 @@ public struct InstalledPackageDatabase: Sendable {
         self.packages = packages
     }
 
-    public init(contentsOf path: String) throws -> InstalledPackageDatabase {
+    public init(contentsOf path: String) throws {
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         self.init(parsing: String(decoding: data, as: UTF8.self))
     }
