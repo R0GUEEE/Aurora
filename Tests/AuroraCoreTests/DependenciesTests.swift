@@ -183,7 +183,9 @@ final class DependenciesTests: XCTestCase {
         XCTAssertEqual(relations.provides.map(\.name), ["mail-transport-agent"])
         XCTAssertEqual(relations.provides[0].version?.raw, "7.2")
 
-        let newapp = try XCTUnwrap(stanzas.first { $0["Package"] == "newapp" })
+        let newappStanza = try XCTUnwrap(stanzas.first { $0["Package"] == "newapp" })
+        // `relations` belongs to a record, not to the raw stanza.
+        let newapp = PackageRecord(stanza: newappStanza)
         XCTAssertEqual(newapp.relations.depends.clauses.count, 1)
         XCTAssertEqual(newapp.relations.depends.clauses[0].alternatives.map(\.name), ["libfoo1", "libbar1"])
         XCTAssertNil(newapp.relations.depends.clauses[0].alternatives[1].constraint)

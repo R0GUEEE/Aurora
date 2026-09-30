@@ -77,3 +77,19 @@ enum Fixture {
     /// `left <relation> right` lines produced by fuzzing against dpkg.
     static let versionVectors = "version-vectors.tsv"
 }
+
+extension PackageRelations {
+
+    /// Builds the relations of a stanza written inline as a dictionary.
+    ///
+    /// Test-only on purpose: the engine's `PackageRelations.init(stanza:)` takes a
+    /// real `ControlStanza` so that field order and unknown fields survive, which
+    /// is the property the dpkg status writer depends on. A dictionary has no
+    /// order, so keys are sorted to keep these tests deterministic.
+    init(stanza fields: [String: String]) {
+        let ordered = fields
+            .sorted { $0.key < $1.key }
+            .map { ControlField(name: $0.key, value: $0.value) }
+        self.init(stanza: ControlStanza(fields: ordered))
+    }
+}

@@ -108,8 +108,8 @@ final class DebArchiveTests: XCTestCase {
         let payloadMember = try XCTUnwrap(archive.payloadMember)
         let tar = try Decompressor.decompress(try archive.read(payloadMember),
                                               format: CompressionFormat.detect(fileName: payloadMember.name) ?? .plain)
-        XCTAssertEqual(TarReader.entries(in: tar).filter { $0.type == .regular }.count, summary.files)
-        XCTAssertEqual(Array(TarReader.entries(in: tar).map(\.name).prefix(2)), [".", "./etc"])
+        XCTAssertEqual(try TarReader.entries(in: tar).filter { $0.type == .regular }.count, summary.files)
+        XCTAssertEqual(Array(try TarReader.entries(in: tar).map(\.name).prefix(2)), [".", "./etc"])
     }
 
     // MARK: - Damage
