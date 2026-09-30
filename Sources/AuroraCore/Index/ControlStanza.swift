@@ -63,6 +63,16 @@ public struct ControlStanza: Hashable, Sendable {
 
     public func has(_ name: String) -> Bool { lookup[name.lowercased()] != nil }
 
+    /// Appends a continuation line to the most recently added field.
+    ///
+    /// The parser needs this because `fields` is `private(set)`: a multi-line
+    /// value is built by this type, not by rewriting the array from outside.
+    mutating func appendContinuation(_ text: String) {
+        guard var last = fields.popLast() else { return }
+        last.value += "\n" + text
+        fields.append(last)
+    }
+
     public func string(_ name: String) -> String? {
         guard let value = self[name], !value.isEmpty else { return nil }
         return value
@@ -161,12 +171,7 @@ public enum ControlParser {
             if line.first == " " || line.first == "\t" {
                 // Continuation of the previous field: strip exactly one leading
                 // space or tab, as dpkg does.
-                let remainder = String(line.dropFirst())
-                if var last = current.fields.last {
-                    current.fields.removeLast()
-                    last.value += "\n" + remainder
-                    current.fields.append(last)
-                }
+                current.appendContinuation(String(line.dropFirst()))
                 continue
             }
 

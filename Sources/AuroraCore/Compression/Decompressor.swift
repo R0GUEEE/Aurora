@@ -103,7 +103,7 @@ public enum Decompressor {
 
         case .gzip:
             do {
-                return try ZlibBridge.inflate(data)
+                return try ZlibBridge.decompress(data)
             } catch {
                 throw DecompressionError.corrupt(.gzip, reason: "\(error)")
             }

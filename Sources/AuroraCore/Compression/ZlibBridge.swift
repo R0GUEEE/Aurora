@@ -29,10 +29,14 @@ public enum ZlibBridge {
 
     /// Inflates a zlib *or* gzip stream.
     ///
+    /// Named `decompress` rather than `inflate` on purpose: a member called
+    /// `inflate` would shadow the C function of the same name inside this type,
+    /// and Swift resolves the name to the member first.
+    ///
     /// `windowBits` 47 (`15 + 32`) asks zlib to detect the container from the
     /// first bytes, so one code path handles both a `.gz` index and a bare zlib
-    /// stream. Use ``inflateRaw`` for headerless deflate.
-    public static func inflate(_ data: Data, windowBits: Int32 = 47) throws -> Data {
+    /// stream. Use ``decompressRaw(_:)`` for headerless deflate.
+    public static func decompress(_ data: Data, windowBits: Int32 = 47) throws -> Data {
         guard !data.isEmpty else { return Data() }
 
         var stream = z_stream()
@@ -73,7 +77,7 @@ public enum ZlibBridge {
     }
 
     /// Inflates headerless (raw) deflate data.
-    public static func inflateRaw(_ data: Data) throws -> Data {
-        try inflate(data, windowBits: -15)
+    public static func decompressRaw(_ data: Data) throws -> Data {
+        try decompress(data, windowBits: -15)
     }
 }
