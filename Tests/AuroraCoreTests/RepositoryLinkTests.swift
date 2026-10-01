@@ -81,6 +81,48 @@ final class RepositoryLinkTests: XCTestCase {
         XCTAssertTrue(sources.allSatisfy(\.isFlat))
     }
 
+
+    func testKnownBigBossAliasUsesSileoCanonicalDistribution() throws {
+        let link = try XCTUnwrap(RepositoryLink.parse("bigboss.org"))
+        XCTAssertEqual(link.url, "http://apt.thebigboss.org/repofiles/cydia")
+        XCTAssertEqual(link.suite, "stable")
+        XCTAssertEqual(link.components, ["main"])
+    }
+
+    func testProcursusAliasUsesCanonicalDistributionRoot() throws {
+        let link = try XCTUnwrap(RepositoryLink.parse("https://apt.procurs.us/"))
+        XCTAssertEqual(link.url, "https://apt.procurs.us")
+        XCTAssertEqual(link.suite, "iphoneos-arm64/1800")
+        XCTAssertEqual(link.components, ["main"])
+    }
+
+    func testDeb822DirectDistsURIInfersMissingLayoutFields() throws {
+        let sources = SourceInterchange.parse("""
+        Types: deb
+        URIs: https://repo.example.test/apt/dists/stable/tweaks/binary-iphoneos-arm64/Packages.xz
+        """)
+
+        let source = try XCTUnwrap(sources.first)
+        XCTAssertEqual(source.normalizedURL, "https://repo.example.test/apt")
+        XCTAssertEqual(source.suite, "stable")
+        XCTAssertEqual(source.components, ["tweaks"])
+        XCTAssertEqual(source.architectures, ["iphoneos-arm64"])
+    }
+
+    func testDeb822ExplicitFlatFieldsOverrideURIInference() throws {
+        let sources = SourceInterchange.parse("""
+        Types: deb
+        URIs: https://repo.example.test/dists/stable/Release
+        Suites: ./
+        Components:
+        """)
+
+        let source = try XCTUnwrap(sources.first)
+        XCTAssertEqual(source.normalizedURL, "https://repo.example.test")
+        XCTAssertEqual(source.suite, "./")
+        XCTAssertTrue(source.components.isEmpty)
+    }
+
     func testRejectsNonRepositoryTextAndCredentials() {
         XCTAssertNil(RepositoryLink.parse("not a repository"))
         XCTAssertNil(RepositoryLink.parse("https://user:pass@repo.example.test"))

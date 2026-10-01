@@ -370,9 +370,15 @@ final class AuroraStore: ObservableObject {
             || components != old.components
             || architectures != old.architectures
         let urlWasEdited = old.normalizedURL.caseInsensitiveCompare(candidate.normalizedURL) != .orderedSame
+        let linkCarriesLayout = link.suite != nil
+            || !link.components.isEmpty
+            || !link.architectures.isEmpty
         let newHost = URL(string: candidate.normalizedURL)?.host?.lowercased()
 
-        if urlWasEdited && !layoutWasEdited {
+        // A direct dists/Release or Packages link can normalize to the same root
+        // URL as the existing source while still carrying new suite/component/
+        // architecture metadata. Treat that as a URL-layout edit too.
+        if (urlWasEdited || linkCarriesLayout) && !layoutWasEdited {
             if newHost == "apt.procurs.us" {
                 candidate.url = "https://apt.procurs.us"
                 candidate.suite = SourceStore.builtInSources.first(where: {
