@@ -1062,6 +1062,53 @@ final class AuroraStore: ObservableObject {
             : "Caches cleared. Refresh to load the repositories again."
     }
 
+    func cacheBreakdown() -> [(name: String, bytes: Int)] {
+        let manager = FileManager.default
+        let root = environment.cacheDirectory
+        let categories = [
+            ("Repository indexes", root + "/indexes"),
+            ("Downloaded packages", root + "/packages"),
+            ("Local packages", root + "/LocalPackages")
+        ]
+        return categories.map { name, path in
+            (name, directorySize(path, manager: manager))
+        }
+    }
+
+    private func directorySize(_ path: String, manager: FileManager) -> Int {
+        guard let enumerator = manager.enumerator(atPath: path) else { return 0 }
+        var total = 0
+        for case let relative as String in enumerator {
+            let full = (path as NSString).appendingPathComponent(relative)
+            if let attributes = try? manager.attributesOfItem(atPath: full),
+               let size = attributes[.size] as? NSNumber {
+                total += size.intValue
+            }
+        }
+        return total
+    }
+
+    var diagnosticsReport: String {
+        var lines = [
+            "Aurora \(AuroraBuildInfo.version) (\(AuroraBuildInfo.build))",
+            "Layout: \(layoutName)",
+            "Architecture: \(environment.architecture)",
+            "Repositories: \(sources.count) total, \(sources.filter(\.isEnabled).count) enabled, \(failedSourceIDs.count) failed",
+            "Packages loaded: \(totalPackageCount)",
+            "Installed packages: \(installed.count)",
+            "Updates: \(upgradePlan.upgradable.count)",
+            "Held/pinned: \(packagePolicy.pins.count)",
+            "Cache: \(AuroraFormat.bytes(cacheSizeBytes()))",
+            ""
+        ]
+        for source in sources {
+            var line = "[\(source.isEnabled ? "enabled" : "disabled")] \(source.name) — \(source.normalizedURL) — \(packageCount(for: source.id)) packages"
+            if let error = indexErrors[source.id] { line += " — ERROR: \(error)" }
+            lines.append(line)
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// Best-effort size of everything Aurora has cached on disk.
     func cacheSizeBytes() -> Int {
         let manager = FileManager.default
