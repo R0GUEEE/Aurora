@@ -81,6 +81,15 @@ struct SettingsView: View {
                 get: { store.settings.autoRefreshOnLaunch },
                 set: { store.setAutoRefresh($0) }
             ))
+            Toggle("Auto-disable repeatedly failing repositories", isOn: Binding(
+                get: { store.settings.autoDisableBadRepositories },
+                set: { store.setAutoDisableBadRepositories($0) }
+            ))
+            Stepper("Disable after \(store.settings.badRepositoryFailureThreshold) failures", value: Binding(
+                get: { store.settings.badRepositoryFailureThreshold },
+                set: { store.setBadRepositoryFailureThreshold($0) }
+            ), in: 1...10)
+            .disabled(!store.settings.autoDisableBadRepositories)
             Toggle("Skip failed repositories during Refresh All", isOn: Binding(
                 get: { store.settings.skipFailedRepositories },
                 set: { store.setSkipFailedRepositories($0) }
