@@ -682,7 +682,13 @@ public actor RepositoryClient {
             return destination
         }
 
-        try await downloader.download(from: remote, to: destination, progress: progress)
+        let strongDigest = record.bestDigest.map { !$0.algorithm.isBroken } ?? false
+        try await downloader.download(
+            from: remote,
+            to: destination,
+            allowCrossOriginRedirects: strongDigest,
+            progress: progress
+        )
 
         guard try verifyDownloadedFile(at: destination, record: record) else {
             try? FileManager.default.removeItem(atPath: destination)
