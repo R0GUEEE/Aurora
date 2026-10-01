@@ -27,6 +27,7 @@ struct RootView: View {
 
     enum Tab: Hashable {
         case browse
+        case newPackages
         case installed
         case library
         case sources
@@ -42,6 +43,12 @@ struct RootView: View {
             }
             .tabItem { Label("Browse", systemImage: "square.grid.2x2") }
             .tag(Tab.browse)
+
+            NavigationStack {
+                NewPackagesView(store: store)
+            }
+            .tabItem { Label("New", systemImage: "sparkles") }
+            .tag(Tab.newPackages)
 
             NavigationStack {
                 InstalledView(store: store)
