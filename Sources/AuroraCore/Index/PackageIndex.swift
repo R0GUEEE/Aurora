@@ -23,6 +23,17 @@ public struct PackageIndex: Sendable {
     public var isEmpty: Bool { records.isEmpty }
     public var count: Int { records.count }
 
+    /// Preallocates the two arrays that grow once per package during a bulk merge.
+    /// Dictionary buckets are reserved conservatively because one package name can
+    /// have several versions/architectures.
+    public mutating func reserveCapacity(_ minimumCapacity: Int) {
+        guard minimumCapacity > 0 else { return }
+        records.reserveCapacity(minimumCapacity)
+        normalizedSearchText.reserveCapacity(minimumCapacity)
+        byName.reserveCapacity(minimumCapacity)
+        byProvidedName.reserveCapacity(max(16, minimumCapacity / 4))
+    }
+
     public mutating func append(_ record: PackageRecord) {
         let index = records.count
         records.append(record)
