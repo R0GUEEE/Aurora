@@ -146,14 +146,20 @@ public actor RepositoryClient {
 
     /// Absolute URL of a package inside the repository that published it.
     public static func packageURL(_ record: PackageRecord, in source: RepositorySource) -> URL? {
-        guard let filename = record.filename, !filename.isEmpty else { return nil }
-        if filename.hasPrefix("http://") || filename.hasPrefix("https://") {
-            return URL(string: filename)
+        guard let rawFilename = record.filename else { return nil }
+        let filename = rawFilename.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !filename.isEmpty else { return nil }
+        if let absolute = URL(string: filename), absolute.scheme != nil {
+            guard let scheme = absolute.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
+            return absolute
         }
-        var base = source.normalizedURL
-        if !base.hasSuffix("/") { base += "/" }
-        let relative = filename.hasPrefix("/") ? String(filename.dropFirst()) : filename
-        return URL(string: base + relative)
+        guard var base = URL(string: source.normalizedURL) else { return nil }
+        if !base.absoluteString.hasSuffix("/") {
+            base = URL(string: base.absoluteString + "/") ?? base
+        }
+        // URL resolution handles escaping and dot-segments without string
+        // concatenation accidentally producing malformed package URLs.
+        return URL(string: filename, relativeTo: base)?.absoluteURL
     }
 
     private func url(_ source: RepositorySource, path: String) -> URL? {
