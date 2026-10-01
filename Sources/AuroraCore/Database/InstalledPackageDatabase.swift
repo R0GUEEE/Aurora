@@ -75,10 +75,15 @@ public struct InstalledPackageDatabase: Sendable {
 
     public private(set) var packages: [String: InstalledPackage]
     private var keysByName: [String: [String]]
+    private var presentKeys: Set<String>
+    private var brokenKeys: Set<String>
 
     public init(packages: [String: InstalledPackage] = [:]) {
         self.packages = packages
         self.keysByName = Self.makeNameIndex(packages)
+        let status = Self.makeStatusIndexes(packages)
+        self.presentKeys = status.present
+        self.brokenKeys = status.broken
     }
 
     public init(parsing text: String) {
@@ -92,6 +97,9 @@ public struct InstalledPackageDatabase: Sendable {
         }
         self.packages = packages
         self.keysByName = Self.makeNameIndex(packages)
+        let status = Self.makeStatusIndexes(packages)
+        self.presentKeys = status.present
+        self.brokenKeys = status.broken
     }
 
     public init(contentsOf path: String) throws {
@@ -108,9 +116,29 @@ public struct InstalledPackageDatabase: Sendable {
         return result
     }
 
-    private mutating func rebuildNameIndex() {
-        keysByName = Self.makeNameIndex(packages)
+    private static func makeStatusIndexes(
+        _ packages: [String: InstalledPackage]
+    ) -> (present: Set<String>, broken: Set<String>) {
+        var present = Set<String>()
+        var broken = Set<String>()
+        present.reserveCapacity(packages.count)
+        broken.reserveCapacity(max(8, packages.count / 16))
+        for (key, package) in packages {
+            let status = package.status
+            guard !status.isRemoved else { continue }
+            present.insert(key)
+            if status.isBroken { broken.insert(key) }
+        }
+        return (present, broken)
     }
+
+    private mutating func rebuildIndexes() {
+        keysByName = Self.makeNameIndex(packages)
+        let status = Self.makeStatusIndexes(packages)
+        presentKeys = status.present
+        brokenKeys = status.broken
+    }
+
 
     public var count: Int { packages.count }
 
@@ -159,11 +187,11 @@ public struct InstalledPackageDatabase: Sendable {
     /// Packages dpkg considers present, including half-installed ones — the
     /// resolver must reason about those, not only about the clean ones.
     public var present: [InstalledPackage] {
-        packages.values.filter { !$0.status.isRemoved }
+        presentKeys.compactMap { packages[$0] }
     }
 
     public var brokenPackages: [InstalledPackage] {
-        present.filter { $0.status.isBroken }
+        brokenKeys.compactMap { packages[$0] }
     }
 
     // MARK: - Mutation
@@ -174,6 +202,14 @@ public struct InstalledPackageDatabase: Sendable {
         packages[entry.key] = entry
         if isNew {
             keysByName[entry.name, default: []].append(entry.key)
+        }
+
+        presentKeys.remove(entry.key)
+        brokenKeys.remove(entry.key)
+        let status = entry.status
+        if !status.isRemoved {
+            presentKeys.insert(entry.key)
+            if status.isBroken { brokenKeys.insert(entry.key) }
         }
     }
 
@@ -191,7 +227,7 @@ public struct InstalledPackageDatabase: Sendable {
             } else {
                 packages = packages.filter { $0.value.name != name }
             }
-            rebuildNameIndex()
+            rebuildIndexes()
         } else {
             var stanza = entry.stanza
             stanza["Status"] = "deinstall ok config-files"
