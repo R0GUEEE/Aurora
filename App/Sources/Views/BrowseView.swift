@@ -16,6 +16,7 @@ struct BrowseView: View {
     @State private var compatibleOnly = false
     @State private var selectedArchitecture = "All"
     @State private var selectedSection = "All"
+    @State private var isShowingFilters = false
 
     var body: some View {
         // Evaluate the filtered section tree once per body render.
@@ -70,27 +71,12 @@ struct BrowseView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                Menu {
-                    Picker("Sort", selection: $sort) {
-                        ForEach(PackageSort.allCases) { value in Text(value.label).tag(value) }
-                    }
-                    Toggle("Installed only", isOn: $installedOnly)
-                    Toggle("Updates only", isOn: $updatesOnly)
-                    Toggle("Compatible only", isOn: $compatibleOnly)
-                    Divider()
-                    Picker("Architecture", selection: $selectedArchitecture) {
-                        ForEach(architectures, id: \.self) { Text($0).tag($0) }
-                    }
-                    Picker("Section", selection: $selectedSection) {
-                        ForEach(sections, id: \.self) { Text($0).tag($0) }
-                    }
-                    if hasActiveFilters {
-                        Divider()
-                        Button("Clear Filters") { clearFilters() }
-                    }
+                Button {
+                    isShowingFilters = true
                 } label: {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
+                    Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
+                .accessibilityLabel("Browse filters")
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -104,6 +90,50 @@ struct BrowseView: View {
                 }
                 .disabled(store.refreshState.isRefreshing)
                 .accessibilityLabel("Refresh all repositories")
+            }
+        }
+        .sheet(isPresented: $isShowingFilters) {
+            NavigationStack {
+                Form {
+                    Section("Status") {
+                        Toggle("Installed only", isOn: $installedOnly)
+                        Toggle("Updates only", isOn: $updatesOnly)
+                        Toggle("Compatible only", isOn: $compatibleOnly)
+                    }
+
+                    Section("Sort") {
+                        Picker("Sort", selection: $sort) {
+                            ForEach(PackageSort.allCases) { value in
+                                Text(value.label).tag(value)
+                            }
+                        }
+                    }
+
+                    Section("Architecture") {
+                        Picker("Architecture", selection: $selectedArchitecture) {
+                            ForEach(architectures, id: \.self) { Text($0).tag($0) }
+                        }
+                    }
+
+                    Section("Section") {
+                        Picker("Section", selection: $selectedSection) {
+                            ForEach(sections, id: \.self) { Text($0).tag($0) }
+                        }
+                    }
+
+                    if hasActiveFilters || sort != .name {
+                        Section {
+                            Button("Clear Filters", role: .destructive) { clearFilters() }
+                        }
+                    }
+                }
+                .navigationTitle("Browse Filters")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { isShowingFilters = false }
+                    }
+                }
             }
         }
         .overlay(alignment: .bottom) {
@@ -173,6 +203,7 @@ struct BrowseView: View {
         compatibleOnly = false
         selectedArchitecture = "All"
         selectedSection = "All"
+        sort = .name
     }
 
     private func footerText(for visibleSections: [PackageSection]) -> String {
