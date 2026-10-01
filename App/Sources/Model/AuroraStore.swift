@@ -508,6 +508,18 @@ final class AuroraStore: ObservableObject {
 
     func refreshFailedSources() async {
         let ids = failedSourceIDs
+        guard !ids.isEmpty else { return }
+
+        // Retry Failed is an explicit recovery action. Sources auto-disabled by
+        // the circuit breaker must be re-enabled here or a successful retry would
+        // still remain invisible to the merged package index.
+        let failed = Set(ids)
+        for index in sources.indices where failed.contains(sources[index].id) {
+            sources[index].isEnabled = true
+            sources[index].consecutiveFailures = 0
+        }
+        persistSources()
+
         for id in ids { await refresh(sourceID: id) }
     }
 
@@ -697,7 +709,10 @@ final class AuroraStore: ObservableObject {
         // that have repeatedly failed are quarantined and therefore cannot occupy
         // a refresh worker until the user explicitly re-enables/retries them.
         var quarantined = 0
-        if settings.autoDisableBadRepositories {
+        // Automatic refreshes protect themselves from repeatedly broken sources.
+        // A user-initiated Refresh All (forceReload == true) is the recovery path
+        // and must actually retry enabled failed repositories.
+        if settings.autoDisableBadRepositories && !forceReload {
             let threshold = settings.badRepositoryFailureThreshold
             for index in sources.indices where sources[index].isEnabled {
                 if (sources[index].consecutiveFailures ?? 0) >= threshold {
@@ -708,7 +723,10 @@ final class AuroraStore: ObservableObject {
             if quarantined > 0 { persistSources() }
         }
         let allEnabled = sources.filter(\.isEnabled)
-        let enabled = (settings.skipFailedRepositories && !settings.refreshFailedRepositories)
+        let shouldSkipKnownFailures = !forceReload
+            && settings.skipFailedRepositories
+            && !settings.refreshFailedRepositories
+        let enabled = shouldSkipKnownFailures
             ? allEnabled.filter { indexErrors[$0.id] == nil }
             : allEnabled
         let skipped = allEnabled.count - enabled.count
