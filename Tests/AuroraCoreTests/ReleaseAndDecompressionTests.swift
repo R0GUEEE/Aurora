@@ -93,6 +93,27 @@ final class ReleaseAndDecompressionTests: XCTestCase {
             .allSatisfy { $0.hex.count == 64 })
     }
 
+
+    func testChecksumLookupNormalizesLeadingDotSlashAndDuplicateSeparators() throws {
+        let release = try releaseFixture()
+        XCTAssertEqual(
+            release.checksum(forPath: "./main//binary-iphoneos-arm64/Packages")?.algorithm,
+            .sha256
+        )
+    }
+
+    func testAcquireByHashFlagParsesAPTBooleanValues() {
+        let enabled = ReleaseFile(stanza: ControlStanza(fields: [
+            ControlField(name: "Acquire-By-Hash", value: "yes")
+        ]))
+        XCTAssertTrue(enabled.acquireByHash)
+
+        let disabled = ReleaseFile(stanza: ControlStanza(fields: [
+            ControlField(name: "Acquire-By-Hash", value: "no")
+        ]))
+        XCTAssertFalse(disabled.acquireByHash)
+    }
+
     /// Cross-checks the fixture's own digest against the file it describes, so a
     /// fixture that drifts from its `Release` file fails loudly.
     func testTheRecordedDigestMatchesTheFixtureOnDisk() throws {
