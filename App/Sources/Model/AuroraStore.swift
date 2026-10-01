@@ -150,7 +150,7 @@ final class AuroraStore: ObservableObject {
         hasStarted = true
         await reloadInstalled()
         if settings.autoRefreshOnLaunch {
-            await refreshAll()
+            await refreshAll(forceReload: false)
         }
     }
 
@@ -320,7 +320,7 @@ final class AuroraStore: ObservableObject {
 
     // MARK: - Refresh
 
-    func refreshAll() async {
+    func refreshAll(forceReload: Bool = true) async {
         let enabled = sources.filter(\.isEnabled)
         guard !enabled.isEmpty else {
             refreshState = .idle
@@ -328,7 +328,7 @@ final class AuroraStore: ObservableObject {
             return
         }
         refreshState = .refreshing(done: 0, total: enabled.count)
-        let client = makeRepositoryClient(useCache: false)
+        let client = makeRepositoryClient(useCache: !forceReload)
         for (offset, source) in enabled.enumerated() {
             await refresh(source, using: client)
             refreshState = .refreshing(done: offset + 1, total: enabled.count)
@@ -650,8 +650,13 @@ final class AuroraStore: ObservableObject {
     }
 
     func makeResolver() -> DependencyResolver {
+        var allowed = Set(environment.compatibleArchitectures)
+        if environment.layout == .rootless && settings.showOnlyRootlessCompatible {
+            allowed = [environment.architecture]
+        }
         let policy = DependencyResolver.Policy(
             architecture: environment.architecture,
+            allowedArchitectures: allowed,
             installRecommends: false,
             allowDowngrades: queueContainsDowngrade,
             removeDependentsWithPackage: true,
