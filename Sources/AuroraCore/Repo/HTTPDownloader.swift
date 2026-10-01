@@ -22,12 +22,14 @@ public enum TransportError: Error, CustomStringConvertible {
 public final class HTTPDownloader: NSObject, @unchecked Sendable {
 
     private let session: URLSession
+    private let metadataTimeout: TimeInterval
 
-    public init(configuration: URLSessionConfiguration? = nil) {
+    public init(configuration: URLSessionConfiguration? = nil, metadataTimeout: TimeInterval = 12) {
         let config = configuration ?? .default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 3600
         config.httpAdditionalHeaders = ["User-Agent": HTTPDownloader.userAgent]
+        self.metadataTimeout = min(60, max(3, metadataTimeout))
         self.session = URLSession(configuration: config)
         super.init()
     }
@@ -40,7 +42,7 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         // Repository metadata should fail fast. Package downloads use the
         // session's much longer resource timeout separately.
-        request.timeoutInterval = 12
+        request.timeoutInterval = metadataTimeout
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         do {
             let (data, response) = try await session.data(for: request)
