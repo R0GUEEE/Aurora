@@ -40,13 +40,14 @@ public enum RepositoryError: Error, CustomStringConvertible {
 
 /// Client-side rules for what counts as an acceptable repository.
 public struct RepositoryPolicy: Sendable {
-    /// Refuse unsigned, unverifiable, or flat indexes. Callers that intentionally
-    /// use legacy unsigned repositories must opt out explicitly.
+    /// Require signed metadata for distribution repositories. Flat repositories
+    /// use the separate compatibility switch below because many jailbreak repos
+    /// are unsigned even when they publish Release checksums.
     public var requireSignature: Bool
     /// Refuse package archives that have no collision-resistant digest in the index.
     public var requirePackageDigest: Bool
-    /// Flat repositories carry no `Release` file at all, so a signature is
-    /// impossible there by construction.
+    /// Permit unsigned flat repositories. Aurora still consumes a flat-root
+    /// Release/InRelease when present and rejects a cryptographically bad signature.
     public var allowFlatUnsigned: Bool
     /// Refuse an index that decompresses beyond this.
     public var maximumIndexBytes: Int
@@ -97,11 +98,10 @@ public struct RepositoryPolicy: Sendable {
     }
 
     public var flatRepositoryRejection: String? {
-        // A flat source has no Release/InRelease metadata to sign. Respect the
-        // explicit flat-source policy independently from signature enforcement
-        // for Release-backed repositories; otherwise the default policy rejects
-        // every ordinary jailbreak repo before its Packages index is scanned.
-        allowFlatUnsigned ? nil : "flat repositories cannot be signed"
+        // Keep flat-source compatibility independent from strict distribution
+        // signature policy. Many jailbreak repos publish Release checksums but no
+        // detached signature; others publish Packages only.
+        allowFlatUnsigned ? nil : "unsigned flat repositories are disabled by policy"
     }
 }
 
