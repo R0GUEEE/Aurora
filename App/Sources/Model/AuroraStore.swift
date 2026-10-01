@@ -1191,12 +1191,12 @@ final class AuroraStore: ObservableObject {
         persistUserLibrary()
     }
 
-    /// Stage missing bookmarked packages once, then resolve the complete queue.
+    /// Stage missing packages once, then resolve the complete queue.
     /// Existing queue decisions and installed packages are left alone.
-    func queueMissingBookmarks() -> (queued: Int, skipped: Int) {
+    func queueMissingPackages(_ names: [String]) -> (queued: Int, skipped: Int) {
         var queued = 0
         var skipped = 0
-        for name in userLibrary.bookmarks.sorted() {
+        for name in Set(names).sorted() {
             guard !isInstalled(name), stagedAction(for: name) == nil else { continue }
             guard let record = combinedIndex.candidates(named: name).first(where: {
                 ($0.architecture == "all" || environment.compatibleArchitectures.contains($0.architecture))
@@ -1210,6 +1210,10 @@ final class AuroraStore: ObservableObject {
         }
         if queued > 0 { refreshQueueAnalysis() }
         return (queued, skipped)
+    }
+
+    func queueMissingBookmarks() -> (queued: Int, skipped: Int) {
+        queueMissingPackages(Array(userLibrary.bookmarks))
     }
 
     func clearPackageHistory() {
