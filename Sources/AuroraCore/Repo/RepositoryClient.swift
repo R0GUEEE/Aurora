@@ -230,22 +230,40 @@ public actor RepositoryClient {
         var release: ReleaseFile?
         var signature: SignatureStatus = .unsigned
 
-        if source.releasePath != nil {
-            let outcome = await fetchRelease(source)
-            release = outcome.release
-            signature = outcome.signature
-            warnings.append(contentsOf: outcome.warnings)
-            if let rejection = policy.signatureRejection(for: signature) {
-                // A repository that failed verification is a hard stop: that is
-                // the entire point of signing metadata. Unsigned counts as
-                // unverified, and so does "no verifier available" — a user who
-                // asks for signatures must not silently get less than that.
-                throw RepositoryError.signatureRequired(source: source.name, reason: rejection)
+        let releaseOutcome = await fetchRelease(source)
+        release = releaseOutcome.release
+        signature = releaseOutcome.signature
+        warnings.append(contentsOf: releaseOutcome.warnings)
+
+        if source.isFlat {
+            // Sileo/Zebra-style flat repositories may publish Release beside
+            // Packages, but many legacy sources do not. Use it when present so
+            // index size/hash verification works without making Release mandatory.
+            if release == nil {
+                if let rejection = policy.flatRepositoryRejection {
+                    throw RepositoryError.signatureRequired(source: source.name, reason: rejection)
+                }
+                warnings.append("Flat repository has no Release metadata; Packages cannot be checksum-verified.")
+            } else {
+                switch signature {
+                case .rejected(let reason):
+                    // A published but invalid signature is never silently ignored.
+                    throw RepositoryError.signatureRequired(source: source.name, reason: reason)
+                case .verified:
+                    break
+                case .unsigned, .unavailable:
+                    if let rejection = policy.flatRepositoryRejection {
+                        throw RepositoryError.signatureRequired(source: source.name, reason: rejection)
+                    }
+                    if policy.requireSignature {
+                        warnings.append("Flat repository Release metadata is not verified; accepted by flat-repository compatibility policy.")
+                    }
+                }
             }
-        } else if let rejection = policy.flatRepositoryRejection {
+        } else if let rejection = policy.signatureRejection(for: signature) {
+            // Distribution repositories promise signed metadata. Respect strict
+            // signature policy for those sources.
             throw RepositoryError.signatureRequired(source: source.name, reason: rejection)
-        } else {
-            warnings.append("Flat repository: no Release file, so packages cannot be checksum-verified.")
         }
 
         let configuredArchitectures = source.architectures.isEmpty ? environment.compatibleArchitectures : source.architectures
@@ -258,7 +276,7 @@ public actor RepositoryClient {
         for architecture in architectures {
             for component in components(for: source) {
                 var paths = indexPaths(source: source, architecture: architecture, component: component)
-                // Flat repositories do not publish a Release manifest. Prefer the
+                // Flat repositories without usable Release metadata prefer the
                 // compression format that worked last time, but always fall back to
                 // every supported format. Repositories commonly change Packages.xz
                 // to Packages.gz (or vice versa); pinning the cached format forever
