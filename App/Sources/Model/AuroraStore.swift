@@ -428,40 +428,45 @@ final class AuroraStore: ObservableObject {
         // revalidate with the server; ETag/Last-Modified can still turn unchanged
         // indexes into tiny 304 responses instead of full downloads.
         let useCache = true
-        let batchSize = 6
+        // Keep a rolling window full instead of waiting for the slowest member of
+        // each fixed batch. This removes head-of-line blocking from dead/slow repos.
+        let concurrency = min(10, max(4, enabled.count))
         var completed = 0
+        var next = 0
 
-        // A dead repository must not block every source after it. Refresh a
-        // bounded number concurrently so 80+ source lists stay responsive
-        // without opening dozens of simultaneous connections on a phone.
-        for start in stride(from: 0, to: enabled.count, by: batchSize) {
-            let end = min(start + batchSize, enabled.count)
-            let batch = Array(enabled[start..<end])
-            await withTaskGroup(of: RefreshOutcome.self) { group in
-                for source in batch {
-                    let environment = self.environment
-                    let requireSignature = !self.settings.ignoreSignatureFailures
-                    group.addTask {
-                        let client = RepositoryClient(
-                            environment: environment,
-                            policy: RepositoryPolicy(
-                                requireSignature: requireSignature,
-                                useCache: useCache
-                            )
+        await withTaskGroup(of: RefreshOutcome.self) { group in
+            func enqueue(_ source: RepositorySource) {
+                let environment = self.environment
+                let requireSignature = !self.settings.ignoreSignatureFailures
+                group.addTask {
+                    let client = RepositoryClient(
+                        environment: environment,
+                        policy: RepositoryPolicy(
+                            requireSignature: requireSignature,
+                            useCache: useCache
                         )
-                        do {
-                            let result = try await client.refresh(source)
-                            return .success(source.id, result)
-                        } catch {
-                            return .failure(source.id, AuroraFormat.message(for: error))
-                        }
+                    )
+                    do {
+                        let result = try await client.refresh(source)
+                        return .success(source.id, result)
+                    } catch {
+                        return .failure(source.id, AuroraFormat.message(for: error))
                     }
                 }
+            }
 
-                for await outcome in group {
-                    applyRefreshOutcome(outcome)
-                    completed += 1
-                    refreshState = .refreshing(done: completed, total: enabled.count)
+            while next < min(concurrency, enabled.count) {
+                enqueue(enabled[next])
+                next += 1
+            }
+
+            while let outcome = await group.next() {
+                applyRefreshOutcome(outcome)
+                completed += 1
+                refreshState = .refreshing(done: completed, total: enabled.count)
+                if next < enabled.count {
+                    enqueue(enabled[next])
+                    next += 1
                 }
             }
         }
