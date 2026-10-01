@@ -99,6 +99,8 @@ struct AuroraSettings: Codable, Equatable {
     var showPackageDescriptions: Bool
     var skipFailedRepositories: Bool
     var refreshConcurrency: Int
+    var repositoryTimeoutSeconds: Int
+    var refreshFailedRepositories: Bool
     var newPackageDays: Int
     var homePackageLimit: Int
     var tabs: [AppTab]
@@ -114,6 +116,8 @@ struct AuroraSettings: Codable, Equatable {
         showPackageDescriptions: Bool = true,
         skipFailedRepositories: Bool = true,
         refreshConcurrency: Int = 8,
+        repositoryTimeoutSeconds: Int = 12,
+        refreshFailedRepositories: Bool = false,
         newPackageDays: Int = 14,
         homePackageLimit: Int = 8,
         tabs: [AppTab] = AppTab.defaultTabs
@@ -128,6 +132,8 @@ struct AuroraSettings: Codable, Equatable {
         self.showPackageDescriptions = showPackageDescriptions
         self.skipFailedRepositories = skipFailedRepositories
         self.refreshConcurrency = min(12, max(2, refreshConcurrency))
+        self.repositoryTimeoutSeconds = min(60, max(3, repositoryTimeoutSeconds))
+        self.refreshFailedRepositories = refreshFailedRepositories
         self.newPackageDays = min(90, max(1, newPackageDays))
         self.homePackageLimit = min(20, max(3, homePackageLimit))
         self.tabs = Self.sanitizedTabs(tabs)
@@ -144,6 +150,8 @@ struct AuroraSettings: Codable, Equatable {
         case showPackageDescriptions
         case skipFailedRepositories
         case refreshConcurrency
+        case repositoryTimeoutSeconds
+        case refreshFailedRepositories
         case newPackageDays
         case homePackageLimit
         case tabs
@@ -166,6 +174,8 @@ struct AuroraSettings: Codable, Equatable {
         self.showPackageDescriptions = (try? container.decode(Bool.self, forKey: .showPackageDescriptions)) ?? true
         self.skipFailedRepositories = (try? container.decode(Bool.self, forKey: .skipFailedRepositories)) ?? true
         self.refreshConcurrency = min(12, max(2, (try? container.decode(Int.self, forKey: .refreshConcurrency)) ?? 8))
+        self.repositoryTimeoutSeconds = min(60, max(3, (try? container.decode(Int.self, forKey: .repositoryTimeoutSeconds)) ?? 12))
+        self.refreshFailedRepositories = (try? container.decode(Bool.self, forKey: .refreshFailedRepositories)) ?? false
         self.newPackageDays = min(90, max(1, (try? container.decode(Int.self, forKey: .newPackageDays)) ?? 14))
         self.homePackageLimit = min(20, max(3, (try? container.decode(Int.self, forKey: .homePackageLimit)) ?? 8))
         let decodedTabs = (try? container.decode([AppTab].self, forKey: .tabs)) ?? AppTab.defaultTabs
