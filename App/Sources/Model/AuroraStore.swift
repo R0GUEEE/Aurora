@@ -159,7 +159,9 @@ final class AuroraStore: ObservableObject {
         hasStarted = true
         await reloadInstalled()
         if settings.autoRefreshOnLaunch {
+            if settings.autoRefreshOnLaunch {
             await refreshAll(forceReload: false)
+        }
         }
     }
 
@@ -972,6 +974,21 @@ final class AuroraStore: ObservableObject {
 
     func setDepictionPreference(_ value: DepictionPreference) {
         settings.depictionPreference = value
+        persistSettings()
+    }
+
+    func setAutoRefreshOnLaunch(_ value: Bool) {
+        settings.autoRefreshOnLaunch = value
+        persistSettings()
+    }
+
+    func setShowPackageIcons(_ value: Bool) {
+        settings.showPackageIcons = value
+        persistSettings()
+    }
+
+    func setCompactPackageRows(_ value: Bool) {
+        settings.compactPackageRows = value
         persistSettings()
     }
 
