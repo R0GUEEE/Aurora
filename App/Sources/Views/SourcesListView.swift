@@ -253,7 +253,7 @@ struct RepositoryDetailView: View {
                             NavigationLink {
                                 PackageDetailView(store: store, record: record)
                             } label: {
-                                PackageRow(record: record, state: store.state(for: record))
+                                PackageRow(record: record, state: store.state(for: record), showIcon: store.settings.showPackageIcons, compact: store.settings.compactPackageRows, showDescription: store.settings.showPackageDescriptions)
                             }
                         }
                     }
