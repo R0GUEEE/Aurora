@@ -525,7 +525,7 @@ final class AuroraStore: ObservableObject {
         // Keep the cache available even for a forced refresh. A forced refresh means
         // revalidate with the server; ETag/Last-Modified can still turn unchanged
         // indexes into tiny 304 responses instead of full downloads.
-        let useCache = true
+        let useCache = settings.useRepositoryCache
         // Keep a rolling window full instead of waiting for the slowest member of
         // each fixed batch. This removes head-of-line blocking from dead/slow repos.
         let configuredConcurrency = settings.fastRepositoryScan ? max(settings.refreshConcurrency, 12) : settings.refreshConcurrency
@@ -533,6 +533,7 @@ final class AuroraStore: ObservableObject {
         let environment = self.environment
         let requireSignature = !settings.ignoreSignatureFailures
         let metadataTimeout = TimeInterval(settings.repositoryTimeoutSeconds)
+        let maximumIndexBytes = settings.maximumIndexSizeMB * (1 << 20)
         // Snapshot MainActor settings before entering Sendable child tasks.
         let refreshDeadline = settings.repositoryRefreshDeadlineSeconds
         let parallelFlatIndexScan = settings.fastRepositoryScan
@@ -548,6 +549,7 @@ final class AuroraStore: ObservableObject {
                         downloader: HTTPDownloader(metadataTimeout: metadataTimeout),
                         policy: RepositoryPolicy(
                             requireSignature: requireSignature,
+                            maximumIndexBytes: maximumIndexBytes,
                             useCache: useCache,
                             maximumRefreshSeconds: refreshDeadline,
                             parallelFlatIndexScan: parallelFlatIndexScan,
@@ -643,7 +645,8 @@ final class AuroraStore: ObservableObject {
             downloader: HTTPDownloader(metadataTimeout: TimeInterval(settings.repositoryTimeoutSeconds)),
             policy: RepositoryPolicy(
                 requireSignature: !settings.ignoreSignatureFailures,
-                useCache: useCache,
+                maximumIndexBytes: settings.maximumIndexSizeMB * (1 << 20),
+                useCache: useCache && settings.useRepositoryCache,
                 maximumRefreshSeconds: settings.repositoryRefreshDeadlineSeconds,
                 parallelFlatIndexScan: settings.fastRepositoryScan,
                 preferCachedIndexFormat: settings.preferCachedIndexFormat
@@ -1167,6 +1170,75 @@ final class AuroraStore: ObservableObject {
     func setPreferCachedIndexFormat(_ value: Bool) {
         settings.preferCachedIndexFormat = value
         persistSettings()
+    }
+
+    func setUseRepositoryCache(_ value: Bool) {
+        settings.useRepositoryCache = value
+        persistSettings()
+    }
+
+    func setMaximumIndexSizeMB(_ value: Int) {
+        settings.maximumIndexSizeMB = min(1024, max(32, value))
+        persistSettings()
+    }
+
+    func setAutoCleanRepositoryData(_ value: Bool) {
+        settings.autoCleanRepositoryData = value
+        persistSettings()
+    }
+
+    func setAutoCleanDownloadedPackages(_ value: Bool) {
+        settings.autoCleanDownloadedPackages = value
+        persistSettings()
+    }
+
+    func setShowRepositoryWarnings(_ value: Bool) {
+        settings.showRepositoryWarnings = value
+        persistSettings()
+    }
+
+    func setConfirmQueueBeforeInstall(_ value: Bool) {
+        settings.confirmQueueBeforeInstall = value
+        persistSettings()
+    }
+
+    func setRefreshAfterTransaction(_ value: Bool) {
+        settings.refreshAfterTransaction = value
+        persistSettings()
+    }
+
+    func applyPerformancePreset(_ preset: String) {
+        switch preset {
+        case "aggressive":
+            settings.refreshConcurrency = 12
+            settings.repositoryTimeoutSeconds = 6
+            settings.repositoryRefreshDeadlineSeconds = 20
+            settings.fastRepositoryScan = true
+            settings.preferCachedIndexFormat = true
+            settings.useRepositoryCache = true
+        case "conservative":
+            settings.refreshConcurrency = 4
+            settings.repositoryTimeoutSeconds = 20
+            settings.repositoryRefreshDeadlineSeconds = 60
+            settings.fastRepositoryScan = false
+            settings.preferCachedIndexFormat = true
+            settings.useRepositoryCache = true
+        default:
+            settings.refreshConcurrency = 8
+            settings.repositoryTimeoutSeconds = 12
+            settings.repositoryRefreshDeadlineSeconds = 30
+            settings.fastRepositoryScan = true
+            settings.preferCachedIndexFormat = true
+            settings.useRepositoryCache = true
+        }
+        persistSettings()
+    }
+
+    func resetSettings() {
+        let tabs = settings.tabs
+        settings = AuroraSettings(tabs: tabs)
+        persistSettings()
+        rebuildIndexes()
     }
 
     func setNewPackageDays(_ value: Int) {
