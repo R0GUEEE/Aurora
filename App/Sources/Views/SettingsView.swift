@@ -95,15 +95,10 @@ struct SettingsView: View {
             ))
             .disabled(store.environment.layout != .rootless)
 
-            Toggle("Offer rootful → rootless conversion", isOn: Binding(
-                get: { store.settings.allowRootfulConversion },
-                set: { store.setAllowRootfulConversion($0) }
-            ))
-            .disabled(store.environment.layout != .rootless || store.settings.showOnlyRootlessCompatible)
         } header: {
             Text("Repositories")
         } footer: {
-            Text("Failed-repository skipping keeps dead sources out of normal bulk refreshes; Retry Failed and per-repository refresh still test them. Most jailbreak repositories are unsigned; with signature checking enforced they are refused instead of being shown with a warning. Rootful packages use legacy root filesystem paths. Conversion is opt-in and best-effort; packages with hard-coded paths, incompatible binaries, or complex maintainer scripts may still fail after conversion.")
+            Text("Failed-repository skipping keeps dead sources out of normal bulk refreshes; Retry Failed and per-repository refresh still test them. Most jailbreak repositories are unsigned; with signature checking enforced they are refused instead of being shown with a warning. Rootful packages use legacy root filesystem paths and are not automatically converted by Aurora.")
         }
     }
 
