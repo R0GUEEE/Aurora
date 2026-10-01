@@ -91,7 +91,7 @@ public struct RepositoryPolicy: Sendable {
             return nil
         case .rejected:
             return status.shortDescription
-        case .unsigned, .unavailable:
+        case .unsigned, .untrusted, .unavailable:
             return requireSignature ? status.shortDescription : nil
         }
     }
@@ -251,7 +251,7 @@ public actor RepositoryClient {
                     throw RepositoryError.signatureRequired(source: source.name, reason: reason)
                 case .verified:
                     break
-                case .unsigned, .unavailable:
+                case .unsigned, .untrusted, .unavailable:
                     if let rejection = policy.flatRepositoryRejection {
                         throw RepositoryError.signatureRequired(source: source.name, reason: rejection)
                     }
