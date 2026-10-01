@@ -41,8 +41,8 @@ struct SearchView: View {
                 Section {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 7) {
-                            ForEach(activeFilterLabels, id: \.self) { label in
-                                Text(label)
+                            ForEach(Array(activeFilterLabels.indices), id: \.self) { index in
+                                Text(activeFilterLabels[index])
                                     .font(.caption)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)
