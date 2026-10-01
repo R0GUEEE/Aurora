@@ -36,7 +36,10 @@ struct SearchView: View {
     @AppStorage("aurora.search.recents") private var recentStorage = ""
 
     var body: some View {
-        List {
+        // Compute the scan/sort once per body evaluation. This value is consumed
+        // by emptiness, row rendering and the result count below.
+        let visibleResults = results
+        return List {
             if hasFilters {
                 Section {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -76,14 +79,14 @@ struct SearchView: View {
                         message: "Search package IDs, names, descriptions and sections. Filters can narrow results by repository, architecture, install state, trust, bookmarks and package type."
                     )
                 }
-            } else if results.isEmpty {
+            } else if visibleResults.isEmpty {
                 Section {
                     EmptyMessage(symbol: "questionmark.circle", title: "No matches",
                                  message: "No loaded package matches “\(query)” with the current filters.")
                 }
             } else {
                 Section {
-                    ForEach(results) { record in
+                    ForEach(visibleResults) { record in
                         NavigationLink(value: record) {
                             PackageRow(
                                 record: record,
@@ -116,7 +119,7 @@ struct SearchView: View {
                         }
                     }
                 } header: {
-                    Text("\(results.count) result\(results.count == 1 ? "" : "s")")
+                    Text("\(visibleResults.count) result\(visibleResults.count == 1 ? "" : "s")")
                 }
             }
         }
@@ -184,9 +187,7 @@ struct SearchView: View {
         }
     }
 
-    private var architectures: [String] {
-        Array(Set(store.combinedIndex.records.map(\.architecture).filter { !$0.isEmpty })).sorted()
-    }
+    private var architectures: [String] { store.architectureNames }
 
     private var results: [PackageRecord] {
         var values = store.searchResults(

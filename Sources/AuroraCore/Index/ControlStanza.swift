@@ -32,6 +32,7 @@ public struct ControlStanza: Hashable, Sendable {
     public init(fields: [ControlField] = []) {
         self.fields = fields
         var lookup: [String: Int] = [:]
+        lookup.reserveCapacity(fields.count)
         for (index, field) in fields.enumerated() where lookup[field.name.lowercased()] == nil {
             lookup[field.name.lowercased()] = index
         }
@@ -68,9 +69,8 @@ public struct ControlStanza: Hashable, Sendable {
     /// The parser needs this because `fields` is `private(set)`: a multi-line
     /// value is built by this type, not by rewriting the array from outside.
     mutating func appendContinuation(_ text: String) {
-        guard var last = fields.popLast() else { return }
-        last.value += "\n" + text
-        fields.append(last)
+        guard !fields.isEmpty else { return }
+        fields[fields.count - 1].value += "\n" + text
     }
 
     public func string(_ name: String) -> String? {
@@ -134,6 +134,7 @@ public struct ControlStanza: Hashable, Sendable {
 
     private mutating func rebuildLookup() {
         var lookup: [String: Int] = [:]
+        lookup.reserveCapacity(fields.count)
         for (index, field) in fields.enumerated() where lookup[field.name.lowercased()] == nil {
             lookup[field.name.lowercased()] = index
         }

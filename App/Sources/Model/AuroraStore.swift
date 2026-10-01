@@ -112,6 +112,7 @@ final class AuroraStore: ObservableObject {
     /// The browse list, precomputed so a view body never groups 30 000 records.
     @Published private(set) var sections: [PackageSection] = []
     @Published private(set) var sectionNames: [String] = []
+    @Published private(set) var architectureNames: [String] = []
 
     @Published private(set) var installed = InstalledPackageDatabase()
     /// Why the installed database is empty, when it is (no jailbreak, no dpkg).
@@ -145,6 +146,7 @@ final class AuroraStore: ObservableObject {
     private var hasStarted = false
     private var lastAutomaticRefresh: Date?
     private var upgradableNames: Set<String> = []
+    private var newPackageCache: [PackageRecord] = []
 
     // MARK: - Lifecycle
 
@@ -763,6 +765,9 @@ final class AuroraStore: ObservableObject {
         let refreshDeadline = settings.repositoryRefreshDeadlineSeconds
         let parallelFlatIndexScan = settings.fastRepositoryScan
         let preferCachedIndexFormat = settings.preferCachedIndexFormat
+        // One URLSession for the whole refresh enables connection reuse across
+        // repositories and avoids creating dozens of session/delegate stacks.
+        let sharedDownloader = HTTPDownloader(metadataTimeout: metadataTimeout)
         var completed = 0
         var next = 0
 
@@ -774,7 +779,7 @@ final class AuroraStore: ObservableObject {
                 group.addTask {
                     let client = RepositoryClient(
                         environment: environment,
-                        downloader: HTTPDownloader(metadataTimeout: metadataTimeout),
+                        downloader: sharedDownloader,
                         policy: RepositoryPolicy(
                             requireSignature: requireSignature,
                             requirePackageDigest: requirePackageDigest,
@@ -927,16 +932,28 @@ final class AuroraStore: ObservableObject {
     }
 
     private func rebuildIndexes() {
-        var merged = PackageIndex()
-        for source in sources where source.isEnabled {
-            if let index = indexBySource[source.id] {
-                merged.merge(index)
-            }
+        let enabledIndexes = sources.compactMap { source -> PackageIndex? in
+            guard source.isEnabled else { return nil }
+            return indexBySource[source.id]
         }
+
+        var merged = PackageIndex()
+        merged.reserveCapacity(enabledIndexes.reduce(0) { $0 + $1.count })
+        for index in enabledIndexes {
+            merged.merge(index)
+        }
+
         combinedIndex = merged
         updateFirstSeen(from: merged.records)
+        refreshNewPackageCache()
         sections = Self.buildSections(from: merged, rootlessOnly: filtersRootlessOnly)
         sectionNames = Self.buildSectionNames(from: merged)
+        var architectureSet = Set<String>()
+        architectureSet.reserveCapacity(8)
+        for record in merged.records where !record.architecture.isEmpty {
+            architectureSet.insert(record.architecture)
+        }
+        architectureNames = architectureSet.sorted()
         // Derived plans are expensive over large indexes; compute them once when
         // their inputs change instead of from SwiftUI body evaluation.
         refreshUpgradePlan()
@@ -1022,6 +1039,14 @@ final class AuroraStore: ObservableObject {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return [] }
         let selectedSource = sourceID.flatMap { id in sources.first { $0.id == id } }
+
+        var verifiedOrigins = Set<String>()
+        if verifiedSourcesOnly {
+            for source in sources where signatureStatus[source.id]?.isVerified == true {
+                verifiedOrigins.insert(Self.originLookupKey(url: source.normalizedURL, suite: source.suite))
+            }
+        }
+
         return combinedIndex.search(needle, section: section, limit: 200) { record in
             if filtersRootlessOnly && !Self.isCompatible(record) { return false }
             if sourceID != nil {
@@ -1040,14 +1065,16 @@ final class AuroraStore: ObservableObject {
             if let commercial, record.commercial != commercial { return false }
             if verifiedSourcesOnly {
                 guard let origin = record.origin,
-                      let source = sources.first(where: {
-                          $0.normalizedURL.caseInsensitiveCompare(origin.url) == .orderedSame
-                              && $0.suite == origin.suite
-                      }),
-                      signatureStatus[source.id]?.isVerified == true else { return false }
+                      verifiedOrigins.contains(Self.originLookupKey(url: origin.url, suite: origin.suite)) else {
+                    return false
+                }
             }
             return true
         }
+    }
+
+    private static func originLookupKey(url: String, suite: String) -> String {
+        url.lowercased() + "\u{1F}" + suite
     }
 
     // MARK: - Packages
@@ -1058,7 +1085,7 @@ final class AuroraStore: ObservableObject {
     }
 
     func bestRecord(named name: String) -> PackageRecord? {
-        combinedIndex.candidates(named: name).first
+        combinedIndex.bestCandidate(named: name)
     }
 
     /// Newest package versions across enabled repositories. Repositories do not
@@ -1066,7 +1093,13 @@ final class AuroraStore: ObservableObject {
     /// Date/Timestamp/Last-Modified field sort first; otherwise stable index
     /// arrival order is used as a fallback.
     func newPackageRecords(limit: Int = 200) -> [PackageRecord] {
+        guard limit > 0 else { return [] }
+        return Array(newPackageCache.prefix(limit))
+    }
+
+    private func refreshNewPackageCache() {
         var best: [String: PackageRecord] = [:]
+        best.reserveCapacity(combinedIndex.count)
         for record in combinedIndex.records {
             if filtersRootlessOnly && !Self.isCompatible(record) { continue }
             if userLibrary.hiddenPackages.contains(record.name) { continue }
@@ -1078,15 +1111,21 @@ final class AuroraStore: ObservableObject {
                 best[record.name] = record
             }
         }
-        let cutoff = Calendar.current.date(byAdding: .day, value: -settings.newPackageDays, to: Date()) ?? .distantPast
-        return best.values.filter { record in
+
+        let cutoff = Calendar.current.date(
+            byAdding: .day,
+            value: -settings.newPackageDays,
+            to: Date()
+        ) ?? .distantPast
+
+        newPackageCache = best.values.filter { record in
             (userLibrary.firstSeen[firstSeenKey(for: record)] ?? .distantPast) >= cutoff
         }.sorted { lhs, rhs in
             let ld = userLibrary.firstSeen[firstSeenKey(for: lhs)] ?? .distantPast
             let rd = userLibrary.firstSeen[firstSeenKey(for: rhs)] ?? .distantPast
             if ld != rd { return ld > rd }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-        }.prefix(limit).map { $0 }
+        }
     }
 
 
@@ -1117,20 +1156,28 @@ final class AuroraStore: ObservableObject {
         "\(record.name)|\(record.version.raw)|\(record.origin?.description ?? "local")"
     }
 
+    private static let publishedISOFormatter = ISO8601DateFormatter()
+    private static let publishedDateFormatters: [DateFormatter] = [
+        "EEE, dd MMM yyyy HH:mm:ss zzz",
+        "yyyy-MM-dd HH:mm:ss Z",
+        "yyyy-MM-dd"
+    ].map { format in
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = format
+        return formatter
+    }
+
     static func publishedDate(for record: PackageRecord) -> Date? {
         let candidates = ["Date", "Timestamp", "Last-Modified", "LastModified"]
-        let iso = ISO8601DateFormatter()
-        let rfc = DateFormatter()
-        rfc.locale = Locale(identifier: "en_US_POSIX")
-        rfc.timeZone = TimeZone(secondsFromGMT: 0)
         for key in candidates {
             guard let raw = record.stanza.string(key)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !raw.isEmpty else { continue }
-            if let date = iso.date(from: raw) { return date }
+            if let date = publishedISOFormatter.date(from: raw) { return date }
             if let seconds = TimeInterval(raw) { return Date(timeIntervalSince1970: seconds) }
-            for format in ["EEE, dd MMM yyyy HH:mm:ss zzz", "yyyy-MM-dd HH:mm:ss Z", "yyyy-MM-dd"] {
-                rfc.dateFormat = format
-                if let date = rfc.date(from: raw) { return date }
+            for formatter in publishedDateFormatters {
+                if let date = formatter.date(from: raw) { return date }
             }
         }
         return nil
@@ -1310,7 +1357,9 @@ final class AuroraStore: ObservableObject {
         if userLibrary.hiddenPackages.contains(name) { userLibrary.hiddenPackages.remove(name) }
         else { userLibrary.hiddenPackages.insert(name) }
         persistUserLibrary()
-        rebuildIndexes()
+        // Hidden packages affect discovery only; rebuilding the repository index,
+        // sections, upgrade plan and queue analysis here was unnecessary.
+        refreshNewPackageCache()
     }
 
     func isHeld(_ name: String) -> Bool { packagePolicy.isHeld(name) }
@@ -1667,6 +1716,7 @@ final class AuroraStore: ObservableObject {
     func setNewPackageDays(_ value: Int) {
         settings.newPackageDays = min(90, max(1, value))
         persistSettings()
+        refreshNewPackageCache()
     }
 
     func setHomePackageLimit(_ value: Int) {
