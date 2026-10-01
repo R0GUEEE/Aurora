@@ -333,6 +333,7 @@ final class AuroraStore: ObservableObject {
         }
         return sources.last(where: {
             $0.normalizedURL.caseInsensitiveCompare(normalized) == .orderedSame
+                && (link.suite == nil || $0.suite == link.suite)
         })?.id
     }
 
