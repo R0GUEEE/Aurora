@@ -66,17 +66,19 @@
 	<!--
 	  Jailbreak repositories are still frequently served over plain HTTP, and so
 	  are many package depictions. Refusing to load them would make the app
-	  useless on the devices it targets, so arbitrary loads are allowed. Nothing
-	  is trusted because of this: package downloads are still verified against
-	  the SHA256/SHA512 recorded in the signed index (AuroraCore.Hashing).
+	  useless on the devices it targets, so arbitrary loads are allowed.
+
+	  Do not add NSAllowsArbitraryLoadsInWebContent, NSAllowsArbitraryLoadsForMedia,
+	  or NSAllowsLocalNetworking here: on iOS 10+ the presence of those keys causes
+	  the system to ignore NSAllowsArbitraryLoads for URLSession, which is what
+	  Aurora's repository client uses.
+
+	  Nothing is trusted because ATS is relaxed: package downloads are still
+	  checked against repository digests when available.
 	-->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-		<key>NSAllowsArbitraryLoadsInWebContent</key>
-		<true/>
-		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
