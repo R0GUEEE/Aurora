@@ -119,6 +119,22 @@ struct PackageDetailView: View {
                     Label("Choose a version…", systemImage: "list.bullet.below.rectangle")
                 }
                 .disabled(store.allRecords(named: record.name).count < 2)
+
+                Toggle("Hold package", isOn: Binding(
+                    get: { store.isHeld(record.name) },
+                    set: { store.setHeld(record.name, held: $0) }
+                ))
+
+                Menu {
+                    Button("Pin to \(record.version.raw)") { store.pinVersion(record) }
+                    Button("Clear hold / version pin") { store.clearPin(record.name) }
+                    Divider()
+                    Button(store.isHidden(record.name) ? "Show in package lists" : "Hide from package lists") {
+                        store.toggleHidden(record.name)
+                    }
+                } label: {
+                    Label("Package preferences", systemImage: "slider.horizontal.3")
+                }
             }
         } header: {
             Text("Actions")
