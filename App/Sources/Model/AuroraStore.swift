@@ -275,6 +275,41 @@ final class AuroraStore: ObservableObject {
         return nil
     }
 
+    /// Validate a newly-added source immediately and keep it only when Aurora
+    /// can read a package index. This prevents dead/HTML URLs from entering the
+    /// normal Refresh All pool in the first place.
+    func validateSource(id: UUID) async -> String? {
+        guard let position = sources.firstIndex(where: { $0.id == id }) else { return "Repository not found." }
+        let source = sources[position]
+        let client = RepositoryClient(
+            environment: environment,
+            downloader: HTTPDownloader(metadataTimeout: TimeInterval(settings.repositoryTimeoutSeconds)),
+            policy: RepositoryPolicy(
+                requireSignature: !settings.ignoreSignatureFailures,
+                maximumIndexBytes: settings.maximumIndexSizeMB * (1 << 20),
+                useCache: settings.useRepositoryCache,
+                maximumRefreshSeconds: settings.repositoryRefreshDeadlineSeconds,
+                parallelFlatIndexScan: settings.fastRepositoryScan,
+                preferCachedIndexFormat: settings.preferCachedIndexFormat
+            )
+        )
+        do {
+            let probe = try await client.probe(source)
+            sources[position].lastError = nil
+            sources[position].consecutiveFailures = 0
+            persistSources()
+            statusMessage = "Validated \(source.name): \(probe.packageCount) packages."
+            return nil
+        } catch {
+            let message = AuroraFormat.message(for: error)
+            sources[position].lastError = message
+            sources[position].consecutiveFailures = (sources[position].consecutiveFailures ?? 0) + 1
+            indexErrors[id] = message
+            persistSources()
+            return message
+        }
+    }
+
     func removeSource(id: UUID) {
         guard let removed = sources.first(where: { $0.id == id }) else { return }
         sources.removeAll { $0.id == id }
