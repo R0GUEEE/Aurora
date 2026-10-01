@@ -261,6 +261,13 @@ final class AuroraStore: ObservableObject {
         for id in ids { await refresh(sourceID: id) }
     }
 
+    /// Sources with a recorded error are skipped by normal bulk refreshes. They
+    /// remain enabled and keep their last known-good index; explicit retry is the
+    /// recovery path so a dead host cannot repeatedly consume the refresh window.
+    var skippedFailedSourceCount: Int {
+        sources.filter { $0.isEnabled && indexErrors[$0.id] != nil }.count
+    }
+
     func restoreDefaultSources() {
         var list = RepositoryList(sources: sources)
         var added = 0
@@ -417,10 +424,19 @@ final class AuroraStore: ObservableObject {
     // MARK: - Refresh
 
     func refreshAll(forceReload: Bool = true) async {
-        let enabled = sources.filter(\.isEnabled)
-        guard !enabled.isEmpty else {
+        let allEnabled = sources.filter(\.isEnabled)
+        let enabled = allEnabled.filter { indexErrors[$0.id] == nil }
+        let skipped = allEnabled.count - enabled.count
+        guard !allEnabled.isEmpty else {
             refreshState = .idle
             statusMessage = "Add a repository to get packages."
+            return
+        }
+        guard !enabled.isEmpty else {
+            refreshState = .idle
+            statusMessage = skipped > 0
+                ? "Skipped \(skipped) failed repositor\(skipped == 1 ? "y" : "ies"). Use Retry Failed to check them again."
+                : "No repositories need refreshing."
             return
         }
         refreshState = .refreshing(done: 0, total: enabled.count)
@@ -476,6 +492,9 @@ final class AuroraStore: ObservableObject {
         refreshState = .idle
         persistSources()
         rebuildIndexes()
+        if skipped > 0 {
+            statusMessage = "Refresh complete. Skipped \(skipped) failed repositor\(skipped == 1 ? "y" : "ies")."
+        }
     }
 
     func refresh(sourceID: UUID) async {
