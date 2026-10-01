@@ -46,9 +46,24 @@ public struct SourceStore: Sendable {
     }
 
     private var statePath: String {
-        // Keep Aurora-only metadata out of APT's source directory.
-        let base = SourceStore.metadataDirectory()
-        return (base as NSString).appendingPathComponent("sources.state.json")
+        // Keep Aurora-only metadata out of the real APT source directory. Custom
+        // stores (tests/tools) retain the historical sibling-sidecar behavior.
+        if isAPTSourceDirectory {
+            let base = SourceStore.metadataDirectory()
+            return (base as NSString).appendingPathComponent("sources.state.json")
+        }
+        return ((path as NSString).deletingPathExtension as NSString)
+            .appendingPathExtension("state.json")!
+    }
+
+    private var isAPTSourceDirectory: Bool {
+        let normalized = URL(fileURLWithPath: directory).standardizedFileURL.path
+        return normalized.hasSuffix("/etc/apt/sources.list.d")
+    }
+
+    private var isDefaultStore: Bool {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+            == URL(fileURLWithPath: SourceStore.defaultPath()).standardizedFileURL.path
     }
 
     private var legacyJSONPath: String {
@@ -121,7 +136,8 @@ public struct SourceStore: Sendable {
         }
 
         // One-time migration from Aurora's previous private sileo.sources.
-        if legacyPrivateSourcePath != path,
+        if isDefaultStore,
+           legacyPrivateSourcePath != path,
            manager.fileExists(atPath: legacyPrivateSourcePath) {
             do {
                 let text = try String(contentsOfFile: legacyPrivateSourcePath, encoding: .utf8)
@@ -141,7 +157,7 @@ public struct SourceStore: Sendable {
         }
 
         // Older Aurora builds used JSON before switching to Deb822.
-        if manager.fileExists(atPath: legacyJSONPath) {
+        if isDefaultStore, manager.fileExists(atPath: legacyJSONPath) {
             do {
                 let data = try Data(contentsOf: URL(fileURLWithPath: legacyJSONPath))
                 var legacy = try JSONDecoder().decode(RepositoryList.self, from: data)
