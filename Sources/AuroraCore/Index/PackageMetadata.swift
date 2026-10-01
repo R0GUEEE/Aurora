@@ -134,12 +134,7 @@ public enum SourceInterchange {
                     }
 
                     let sourceComponents = stanza.has("Components") ? parsedComponents : link.components
-                    var architectures = stanza.has("Architectures") ? parsedArchitectures : link.architectures
-                    architectures.append(contentsOf: addedArchitectures)
-                    var seenArchitectures = Set<String>()
-                    architectures = architectures.filter {
-                        !removedArchitectures.contains($0) && seenArchitectures.insert($0).inserted
-                    }
+                    let architectures = stanza.has("Architectures") ? parsedArchitectures : link.architectures
 
                     for suite in suites {
                         append(RepositorySource(
@@ -148,6 +143,8 @@ public enum SourceInterchange {
                             suite: suite,
                             components: sourceComponents,
                             architectures: architectures,
+                            architectureAdditions: addedArchitectures,
+                            architectureRemovals: Array(removedArchitectures),
                             isEnabled: enabled
                         ))
                     }
@@ -172,25 +169,26 @@ public enum SourceInterchange {
                         let options = fields[1..<urlIndex].joined(separator: " ")
                             .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
                         var optionArchitectures = link.architectures
+                        var architectureAdditions: [String] = []
+                        var architectureRemovals: [String] = []
                         for tokenSub in options.split(whereSeparator: \.isWhitespace) {
                             let token = String(tokenSub)
                             if token.hasPrefix("arch=") {
                                 optionArchitectures = String(token.dropFirst(5)).split(separator: ",").map(String.init)
                             } else if token.hasPrefix("arch+=") {
-                                optionArchitectures.append(contentsOf: String(token.dropFirst(6)).split(separator: ",").map(String.init))
+                                architectureAdditions.append(contentsOf: String(token.dropFirst(6)).split(separator: ",").map(String.init))
                             } else if token.hasPrefix("arch-=") {
-                                let removed = Set(String(token.dropFirst(6)).split(separator: ",").map(String.init))
-                                optionArchitectures.removeAll { removed.contains($0) }
+                                architectureRemovals.append(contentsOf: String(token.dropFirst(6)).split(separator: ",").map(String.init))
                             }
                         }
-                        var seenArchitectures = Set<String>()
-                        optionArchitectures = optionArchitectures.filter { seenArchitectures.insert($0).inserted }
                         source = RepositorySource(
                             name: hostName(link.url),
                             url: link.url,
                             suite: suite,
                             components: explicitComponents.isEmpty ? link.components : explicitComponents,
-                            architectures: optionArchitectures
+                            architectures: optionArchitectures,
+                            architectureAdditions: architectureAdditions,
+                            architectureRemovals: architectureRemovals
                         )
                     } else {
                         source = nil
@@ -227,6 +225,12 @@ public enum SourceInterchange {
             ]
             if !source.architectures.isEmpty {
                 fields.append("Architectures: \(source.architectures.joined(separator: " "))")
+            }
+            if let additions = source.architectureAdditions, !additions.isEmpty {
+                fields.append("Architectures-Add: \(additions.joined(separator: " "))")
+            }
+            if let removals = source.architectureRemovals, !removals.isEmpty {
+                fields.append("Architectures-Remove: \(removals.joined(separator: " "))")
             }
             if !source.isEnabled { fields.append("Enabled: no") }
             return fields.joined(separator: "\n")
