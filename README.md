@@ -1,5 +1,8 @@
 # Aurora
 
+[![Engine](https://github.com/R0GUEEE/Aurora/actions/workflows/ci.yml/badge.svg)](https://github.com/R0GUEEE/Aurora/actions/workflows/ci.yml)
+[![App Build](https://github.com/R0GUEEE/Aurora/actions/workflows/app-build.yml/badge.svg)](https://github.com/R0GUEEE/Aurora/actions/workflows/app-build.yml)
+
 A package manager for jailbroken iOS — rootless and rootful, with its own
 dependency resolver instead of a wrapper around `apt`.
 
@@ -80,6 +83,20 @@ xcodebuild -project App/Aurora.xcodeproj -scheme Aurora -configuration Release \
 Packaging/build-deb.sh build/Release-iphoneos/Aurora.app --rootless
 ```
 
+## What is verified, and how
+
+| Check | How |
+| --- | --- |
+| Version ordering | 1332 pairs fuzzed against a real `dpkg --compare-versions`; the resulting table is a test fixture, so the Swift transcription is checked against dpkg, not against itself. |
+| Fixtures | Built by real `dpkg-deb`, `gzip` and `xz`, and byte-reproducible (`SOURCE_DATE_EPOCH`); CI regenerates them and diffs. |
+| Parser | Round-trip and idempotency checked over the real `status`/`Packages`/`Release` fixtures (`Tools/parser_mirror.py`), which is the property the dpkg status writer depends on. |
+| Engine | 112 XCTest cases on the macOS runner, including gz and xz indexes decompressing to the same bytes as the plain one. |
+| App | `xcodegen` + `xcodebuild` on a real device SDK, then packaged into both `.deb` layouts and checked for `Applications/Aurora.app/Aurora`. |
+| Binary | Inspected directly: 64-bit arm64 Mach-O with an `LC_CODE_SIGNATURE` carrying `platform-application` and `com.apple.private.security.no-container`. |
+
+Not verified: installation on a physical device. Nothing here has been run
+against a live jailbreak.
+
 ## Status and limits
 
 Honest list, because a package manager that lies about its coverage is dangerous:
@@ -95,8 +112,8 @@ Honest list, because a package manager that lies about its coverage is dangerous
   is deliberately not vendored. Every major repository also publishes xz or gzip.
 - **OpenPGP verification** uses the device's `gpgv`/`sqv` and keyrings. Where
   neither exists, sources report `Signature not checked` rather than `Signed`.
-- The app does not yet do background refreshes, and there is no on-device test
-  run recorded for the UI.
+- The app does not yet do background refreshes, and it has never been installed
+  on a physical device.
 
 ## License
 
