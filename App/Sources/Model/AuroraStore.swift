@@ -301,6 +301,53 @@ final class AuroraStore: ObservableObject {
 
     var exportedSources: String { SourceInterchange.export(sources) }
 
+    struct BackupDocument: Codable {
+        let createdAt: Date
+        let sources: [RepositorySource]
+        let settings: AuroraSettings
+        let library: UserLibraryState
+        let policy: PackagePolicy
+        let installedPackages: [String]
+    }
+
+    var exportedBackup: String {
+        let document = BackupDocument(
+            createdAt: Date(),
+            sources: sources,
+            settings: settings,
+            library: userLibrary,
+            policy: packagePolicy,
+            installedPackages: installed.present.map { "\($0.name)=\($0.version.raw)" }.sorted()
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(document) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    @discardableResult
+    func importBackup(_ text: String) -> Bool {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let data = text.data(using: .utf8),
+              let backup = try? decoder.decode(BackupDocument.self, from: data) else {
+            lastError = "This is not a valid Aurora backup."
+            return false
+        }
+        sources = backup.sources
+        settings = backup.settings
+        userLibrary = backup.library
+        packagePolicy = backup.policy
+        persistSources()
+        persistSettings()
+        persistUserLibrary()
+        persistPackagePolicy()
+        rebuildIndexes()
+        statusMessage = "Aurora backup restored."
+        return true
+    }
+
     func stageLocalPackage(at url: URL) {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
