@@ -217,7 +217,7 @@ public struct PackageIndex: Sendable {
                 || record.displayName.lowercased().contains(needle)
                 || record.synopsis.lowercased().contains(needle)
                 || record.section.lowercased().contains(needle)
-                || record.author.lowercased().contains(needle)
+                || (record.author?.lowercased().contains(needle) ?? false)
                 || record.maintainer.lowercased().contains(needle) {
                 results.append(record)
             }
