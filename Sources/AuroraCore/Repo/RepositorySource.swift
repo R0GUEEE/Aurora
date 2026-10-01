@@ -80,8 +80,12 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
     }
 
     public var isValid: Bool {
-        guard let parsed = URL(string: normalizedURL) else { return false }
-        return parsed.scheme != nil && parsed.host != nil
+        guard let parsed = URL(string: normalizedURL),
+              let scheme = parsed.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = parsed.host,
+              !host.isEmpty else { return false }
+        return true
     }
 }
 
