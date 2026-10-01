@@ -104,6 +104,13 @@ struct AuroraSettings: Codable, Equatable {
     var fastRepositoryScan: Bool
     var repositoryRefreshDeadlineSeconds: Int
     var preferCachedIndexFormat: Bool
+    var useRepositoryCache: Bool
+    var maximumIndexSizeMB: Int
+    var autoCleanRepositoryData: Bool
+    var autoCleanDownloadedPackages: Bool
+    var showRepositoryWarnings: Bool
+    var confirmQueueBeforeInstall: Bool
+    var refreshAfterTransaction: Bool
     var newPackageDays: Int
     var homePackageLimit: Int
     var tabs: [AppTab]
@@ -124,6 +131,13 @@ struct AuroraSettings: Codable, Equatable {
         fastRepositoryScan: Bool = true,
         repositoryRefreshDeadlineSeconds: Int = 30,
         preferCachedIndexFormat: Bool = true,
+        useRepositoryCache: Bool = true,
+        maximumIndexSizeMB: Int = 256,
+        autoCleanRepositoryData: Bool = false,
+        autoCleanDownloadedPackages: Bool = false,
+        showRepositoryWarnings: Bool = true,
+        confirmQueueBeforeInstall: Bool = true,
+        refreshAfterTransaction: Bool = true,
         newPackageDays: Int = 14,
         homePackageLimit: Int = 8,
         tabs: [AppTab] = AppTab.defaultTabs
@@ -143,6 +157,13 @@ struct AuroraSettings: Codable, Equatable {
         self.fastRepositoryScan = fastRepositoryScan
         self.repositoryRefreshDeadlineSeconds = min(180, max(10, repositoryRefreshDeadlineSeconds))
         self.preferCachedIndexFormat = preferCachedIndexFormat
+        self.useRepositoryCache = useRepositoryCache
+        self.maximumIndexSizeMB = min(1024, max(32, maximumIndexSizeMB))
+        self.autoCleanRepositoryData = autoCleanRepositoryData
+        self.autoCleanDownloadedPackages = autoCleanDownloadedPackages
+        self.showRepositoryWarnings = showRepositoryWarnings
+        self.confirmQueueBeforeInstall = confirmQueueBeforeInstall
+        self.refreshAfterTransaction = refreshAfterTransaction
         self.newPackageDays = min(90, max(1, newPackageDays))
         self.homePackageLimit = min(20, max(3, homePackageLimit))
         self.tabs = Self.sanitizedTabs(tabs)
@@ -164,6 +185,13 @@ struct AuroraSettings: Codable, Equatable {
         case fastRepositoryScan
         case repositoryRefreshDeadlineSeconds
         case preferCachedIndexFormat
+        case useRepositoryCache
+        case maximumIndexSizeMB
+        case autoCleanRepositoryData
+        case autoCleanDownloadedPackages
+        case showRepositoryWarnings
+        case confirmQueueBeforeInstall
+        case refreshAfterTransaction
         case newPackageDays
         case homePackageLimit
         case tabs
@@ -191,6 +219,13 @@ struct AuroraSettings: Codable, Equatable {
         self.fastRepositoryScan = (try? container.decode(Bool.self, forKey: .fastRepositoryScan)) ?? true
         self.repositoryRefreshDeadlineSeconds = min(180, max(10, (try? container.decode(Int.self, forKey: .repositoryRefreshDeadlineSeconds)) ?? 30))
         self.preferCachedIndexFormat = (try? container.decode(Bool.self, forKey: .preferCachedIndexFormat)) ?? true
+        self.useRepositoryCache = (try? container.decode(Bool.self, forKey: .useRepositoryCache)) ?? true
+        self.maximumIndexSizeMB = min(1024, max(32, (try? container.decode(Int.self, forKey: .maximumIndexSizeMB)) ?? 256))
+        self.autoCleanRepositoryData = (try? container.decode(Bool.self, forKey: .autoCleanRepositoryData)) ?? false
+        self.autoCleanDownloadedPackages = (try? container.decode(Bool.self, forKey: .autoCleanDownloadedPackages)) ?? false
+        self.showRepositoryWarnings = (try? container.decode(Bool.self, forKey: .showRepositoryWarnings)) ?? true
+        self.confirmQueueBeforeInstall = (try? container.decode(Bool.self, forKey: .confirmQueueBeforeInstall)) ?? true
+        self.refreshAfterTransaction = (try? container.decode(Bool.self, forKey: .refreshAfterTransaction)) ?? true
         self.newPackageDays = min(90, max(1, (try? container.decode(Int.self, forKey: .newPackageDays)) ?? 14))
         self.homePackageLimit = min(20, max(3, (try? container.decode(Int.self, forKey: .homePackageLimit)) ?? 8))
         let decodedTabs = (try? container.decode([AppTab].self, forKey: .tabs)) ?? AppTab.defaultTabs
