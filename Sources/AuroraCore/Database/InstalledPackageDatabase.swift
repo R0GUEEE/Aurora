@@ -83,9 +83,11 @@ public struct InstalledPackageDatabase: Sendable {
 
     public init(parsing text: String) {
         var packages: [String: InstalledPackage] = [:]
-        for stanza in ControlParser.parse(text) where !stanza.isEmpty {
+        packages.reserveCapacity(512)
+        ControlParser.forEachStanza(in: text) { stanza in
+            guard !stanza.isEmpty else { return }
             let entry = InstalledPackage(stanza: stanza)
-            guard !entry.name.isEmpty else { continue }
+            guard !entry.name.isEmpty else { return }
             packages[entry.key] = entry
         }
         self.packages = packages
