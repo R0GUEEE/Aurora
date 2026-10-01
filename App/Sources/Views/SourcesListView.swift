@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 import AuroraCore
 
 /// Add, remove, enable, disable and refresh repositories.
@@ -12,6 +13,7 @@ struct SourcesListView: View {
     @State private var isAddingSource = false
     @State private var isConfirmingRestore = false
     @State private var isImportingSources = false
+    @State private var isBrowsingRepoUpdates = false
 
     var body: some View {
         List {
@@ -71,6 +73,11 @@ struct SourcesListView: View {
                 } label: {
                     Label("Import Sources", systemImage: "square.and.arrow.down")
                 }
+                Button {
+                    isBrowsingRepoUpdates = true
+                } label: {
+                    Label("Browse iOS Repo Updates", systemImage: "safari")
+                }
             }
 
             Section {
@@ -123,6 +130,9 @@ struct SourcesListView: View {
         }
         .sheet(isPresented: $isImportingSources) {
             ImportSourcesSheet(store: store)
+        }
+        .sheet(isPresented: $isBrowsingRepoUpdates) {
+            IOSRepoUpdatesBrowser(store: store)
         }
         .confirmationDialog(
             "Restore default repositories?",
@@ -424,6 +434,113 @@ struct AddSourceSheet: View {
     }
 }
 
+
+
+@MainActor
+struct IOSRepoUpdatesBrowser: View {
+    @ObservedObject var store: AuroraStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var candidateURL = ""
+    @State private var result: String?
+
+    private let directoryURL = URL(string: "https://www.ios-repo-updates.com/repositories/popular/")!
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                RepoUpdatesWebView(url: directoryURL) { url in
+                    candidateURL = url.absoluteString
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Add repository URL")
+                        .font(.caption.weight(.semibold))
+                    HStack {
+                        TextField("https://repo.example.com", text: $candidateURL)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                        Button("Add") { addCandidate() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(candidateURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    if let result {
+                        Text(result)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    Text("Browse iOS Repo Updates, open a repository, then paste or select its APT repository URL here. Aurora validates and deduplicates it before adding.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .padding()
+                .background(Color(.secondarySystemBackground))
+            }
+            .navigationTitle("iOS Repo Updates")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func addCandidate() {
+        let value = candidateURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let error = store.addSource(urlText: value, suite: "./", name: "") {
+            result = error
+        } else {
+            result = "Repository added. Refresh Sources to load its packages."
+            candidateURL = ""
+        }
+    }
+}
+
+struct RepoUpdatesWebView: UIViewRepresentable {
+    let url: URL
+    let onRepositoryURL: (URL) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let view = WKWebView()
+        view.navigationDelegate = context.coordinator
+        view.allowsBackForwardNavigationGestures = true
+        view.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
+        return view
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var parent: RepoUpdatesWebView
+        init(parent: RepoUpdatesWebView) { self.parent = parent }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            if let url = navigationAction.request.url,
+               let scheme = url.scheme?.lowercased(),
+               scheme != "http" && scheme != "https" {
+                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                   let repository = components.queryItems?.first(where: {
+                       ["url", "repo", "source"].contains($0.name.lowercased())
+                   })?.value,
+                   let repositoryURL = URL(string: repository) {
+                    parent.onRepositoryURL(repositoryURL)
+                    decisionHandler(.cancel)
+                    return
+                }
+            }
+            decisionHandler(.allow)
+        }
+    }
+}
 
 @MainActor
 struct ImportSourcesSheet: View {
