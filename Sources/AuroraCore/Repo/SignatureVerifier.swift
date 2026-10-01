@@ -172,6 +172,21 @@ public struct SignatureVerifier: Sendable {
         let reason = trimmed.split(separator: "\n").last.map(String.init) ?? "unknown error"
         let lower = output.lowercased()
 
+        let runtimeFailureMarkers = [
+            "dyld",
+            "library not loaded",
+            "symbol not found",
+            "expected in:",
+            "image not found",
+            "incompatible library version",
+            "reason: tried:",
+            "code signature invalid",
+            "mach-o",
+        ]
+        if runtimeFailureMarkers.contains(where: { lower.contains($0) }) {
+            return .unavailable(reason: reason)
+        }
+
         let invalidMarkers = [
             "bad signature",
             "invalid signature",
