@@ -239,6 +239,45 @@ final class AuroraStore: ObservableObject {
         statusMessage = added == 0 ? "Default repositories were already present." : "Restored \(added) default repositories."
     }
 
+    @discardableResult
+    func importSources(_ text: String) -> (added: Int, skipped: Int) {
+        let incoming = SourceInterchange.parse(text)
+        var list = RepositoryList(sources: sources)
+        var added = 0
+        var skipped = 0
+        for source in incoming {
+            do {
+                try list.add(source)
+                added += 1
+            } catch {
+                skipped += 1
+            }
+        }
+        sources = list.sources
+        persistSources()
+        rebuildIndexes()
+        statusMessage = "Imported \(added) source\(added == 1 ? "" : "s")\(skipped > 0 ? "; skipped \(skipped)" : "")."
+        return (added, skipped)
+    }
+
+    var exportedSources: String { SourceInterchange.export(sources) }
+
+    func stageLocalPackage(at url: URL) {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let package = try LocalPackageLoader.load(
+                path: url.path,
+                deviceArchitecture: environment.architecture,
+                requireCompatibleArchitecture: true
+            )
+            stage(.install(package.record))
+            statusMessage = "Staged local package \(package.record.displayName) \(package.version.raw)."
+        } catch {
+            lastError = "Could not open \(url.lastPathComponent): \(AuroraFormat.message(for: error))"
+        }
+    }
+
     func packageCount(for id: UUID) -> Int { indexBySource[id]?.count ?? 0 }
 
     func signatureDescription(for id: UUID) -> String? {
