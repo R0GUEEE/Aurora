@@ -134,6 +134,18 @@ struct SettingsView: View {
                 get: { store.settings.autoRefreshOnLaunch },
                 set: { store.setAutoRefreshOnLaunch($0) }
             ))
+            Stepper("Refresh concurrency: \(store.settings.refreshConcurrency)", value: Binding(
+                get: { store.settings.refreshConcurrency },
+                set: { store.setRefreshConcurrency($0) }
+            ), in: 2...12)
+            Stepper("New package window: \(store.settings.newPackageDays) days", value: Binding(
+                get: { store.settings.newPackageDays },
+                set: { store.setNewPackageDays($0) }
+            ), in: 1...90)
+            Stepper("Home items: \(store.settings.homePackageLimit)", value: Binding(
+                get: { store.settings.homePackageLimit },
+                set: { store.setHomePackageLimit($0) }
+            ), in: 3...20)
             Toggle("Show package icons", isOn: Binding(
                 get: { store.settings.showPackageIcons },
                 set: { store.setShowPackageIcons($0) }
@@ -150,7 +162,7 @@ struct SettingsView: View {
         } header: {
             Text("Behavior & Appearance")
         } footer: {
-            Text("Launch refresh uses cached repository metadata when possible. Manual refresh always requests fresh metadata.")
+            Text("Tune refresh parallelism for your device and source count, choose how long packages remain in New, and control Home density. Refreshes use conditional repository metadata when possible.")
         }
     }
 
