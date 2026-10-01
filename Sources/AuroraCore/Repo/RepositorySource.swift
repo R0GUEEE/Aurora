@@ -70,13 +70,17 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
         suite.hasPrefix("./") ? String(suite.dropFirst(2)) : ""
     }
 
-    /// The `Release` file for the whole suite (dists layout only). A flat
-    /// repository has no release metadata at all.
+    /// Release metadata location. Traditional dists repositories publish it under
+    /// dists/<suite>/Release; flat jailbreak repositories commonly publish a
+    /// Release file beside Packages (Sileo/Zebra both probe that root metadata).
     ///
-    /// Package index paths are built by ``RepositoryClient``, which is the only
-    /// place that knows the format preference order.
+    /// Package index paths are built by RepositoryClient, which owns format order.
     public var releasePath: String? {
-        isFlat ? nil : "dists/\(suite)/Release"
+        if isFlat {
+            let prefix = flatPathPrefix
+            return prefix.isEmpty ? "Release" : "\(prefix)/Release"
+        }
+        return "dists/\(suite)/Release"
     }
 
     public var isValid: Bool {
