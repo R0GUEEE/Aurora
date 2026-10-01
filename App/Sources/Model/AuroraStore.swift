@@ -533,6 +533,10 @@ final class AuroraStore: ObservableObject {
         let environment = self.environment
         let requireSignature = !settings.ignoreSignatureFailures
         let metadataTimeout = TimeInterval(settings.repositoryTimeoutSeconds)
+        // Snapshot MainActor settings before entering Sendable child tasks.
+        let refreshDeadline = settings.repositoryRefreshDeadlineSeconds
+        let parallelFlatIndexScan = settings.fastRepositoryScan
+        let preferCachedIndexFormat = settings.preferCachedIndexFormat
         var completed = 0
         var next = 0
 
@@ -545,9 +549,9 @@ final class AuroraStore: ObservableObject {
                         policy: RepositoryPolicy(
                             requireSignature: requireSignature,
                             useCache: useCache,
-                            maximumRefreshSeconds: settings.repositoryRefreshDeadlineSeconds,
-                            parallelFlatIndexScan: settings.fastRepositoryScan,
-                            preferCachedIndexFormat: settings.preferCachedIndexFormat
+                            maximumRefreshSeconds: refreshDeadline,
+                            parallelFlatIndexScan: parallelFlatIndexScan,
+                            preferCachedIndexFormat: preferCachedIndexFormat
                         )
                     )
                     do {
