@@ -136,7 +136,10 @@ public enum SourceInterchange {
                     let sourceComponents = stanza.has("Components") ? parsedComponents : link.components
                     var architectures = stanza.has("Architectures") ? parsedArchitectures : link.architectures
                     architectures.append(contentsOf: addedArchitectures)
-                    architectures = Array(Set(architectures).subtracting(removedArchitectures)).sorted()
+                    var seenArchitectures = Set<String>()
+                    architectures = architectures.filter {
+                        !removedArchitectures.contains($0) && seenArchitectures.insert($0).inserted
+                    }
 
                     for suite in suites {
                         append(RepositorySource(
@@ -180,7 +183,8 @@ public enum SourceInterchange {
                                 optionArchitectures.removeAll { removed.contains($0) }
                             }
                         }
-                        optionArchitectures = Array(Set(optionArchitectures)).sorted()
+                        var seenArchitectures = Set<String>()
+                        optionArchitectures = optionArchitectures.filter { seenArchitectures.insert($0).inserted }
                         source = RepositorySource(
                             name: hostName(link.url),
                             url: link.url,
