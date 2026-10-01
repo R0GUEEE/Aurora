@@ -122,12 +122,39 @@ public struct RepositoryLink: Sendable, Equatable {
         let suite = explicitSuite ?? inferredSuite
         let sourceComponents = explicitComponents.isEmpty ? inferredComponents : explicitComponents
         let architectures = explicitArchitectures.isEmpty ? inferredArchitectures : explicitArchitectures
-        return RepositoryLink(
+        return canonicalizeKnownRepository(RepositoryLink(
             url: canonical,
             suite: suite,
             components: sourceComponents,
             architectures: architectures
-        )
+        ))
+    }
+
+    /// Sileo and Zebra special-case a small set of historical distribution
+    /// repositories instead of treating their host URL as a flat source. Keep
+    /// that mapping here so manual adds, edits and bulk imports all agree.
+    private static func canonicalizeKnownRepository(_ link: RepositoryLink) -> RepositoryLink {
+        guard let host = URL(string: link.url)?.host?.lowercased() else { return link }
+
+        if ["apt.bigboss.org", "apt.thebigboss.org", "thebigboss.org", "bigboss.org"].contains(host) {
+            return RepositoryLink(
+                url: "http://apt.thebigboss.org/repofiles/cydia",
+                suite: "stable",
+                components: ["main"],
+                architectures: link.architectures
+            )
+        }
+
+        if host == "apt.procurs.us" {
+            return RepositoryLink(
+                url: "https://apt.procurs.us",
+                suite: link.suite ?? "iphoneos-arm64/1800",
+                components: link.components.isEmpty ? ["main"] : link.components,
+                architectures: link.architectures
+            )
+        }
+
+        return link
     }
 
     private static let metadataFileNames: Set<String> = [
