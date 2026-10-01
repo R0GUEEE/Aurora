@@ -426,6 +426,14 @@ MULTIARCH_STATUS = [
         "Installed-Size": "50",
         "Description": "Architecture-independent tool",
     },
+    {
+        "Package": "libother",
+        "Status": "install ok installed",
+        "Version": "1.0-1",
+        "Architecture": "iphoneos-arm",
+        "Installed-Size": "40",
+        "Description": "Legacy architecture library",
+    },
 ]
 
 
