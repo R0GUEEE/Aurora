@@ -542,6 +542,20 @@ final class AuroraStore: ObservableObject {
     // MARK: - Refresh
 
     func refreshAll(forceReload: Bool = true) async {
+        // Circuit breaker runs before any network client/task is created. Sources
+        // that have repeatedly failed are quarantined and therefore cannot occupy
+        // a refresh worker until the user explicitly re-enables/retries them.
+        var quarantined = 0
+        if settings.autoDisableBadRepositories {
+            let threshold = settings.badRepositoryFailureThreshold
+            for index in sources.indices where sources[index].isEnabled {
+                if (sources[index].consecutiveFailures ?? 0) >= threshold {
+                    sources[index].isEnabled = false
+                    quarantined += 1
+                }
+            }
+            if quarantined > 0 { persistSources() }
+        }
         let allEnabled = sources.filter(\.isEnabled)
         let enabled = (settings.skipFailedRepositories && !settings.refreshFailedRepositories)
             ? allEnabled.filter { indexErrors[$0.id] == nil }
@@ -630,7 +644,9 @@ final class AuroraStore: ObservableObject {
         // a major cost on 50–100 source configurations.
         persistSources()
         rebuildIndexes()
-        if skipped > 0 {
+        if quarantined > 0 {
+            statusMessage = "Refresh complete. Disabled \(quarantined) repeatedly failing repositor\(quarantined == 1 ? "y" : "ies") before refresh."
+        } else if skipped > 0 {
             statusMessage = "Refresh complete. Skipped \(skipped) failed repositor\(skipped == 1 ? "y" : "ies")."
         }
     }
@@ -717,6 +733,11 @@ final class AuroraStore: ObservableObject {
             sources[position].lastRefreshed = refreshedAt
         }
         sources[position].lastError = error
+        if error == nil {
+            sources[position].consecutiveFailures = 0
+        } else {
+            sources[position].consecutiveFailures = (sources[position].consecutiveFailures ?? 0) + 1
+        }
         if persist { persistSources() }
     }
 
@@ -1207,6 +1228,16 @@ final class AuroraStore: ObservableObject {
 
     func setSkipFailedRepositories(_ value: Bool) {
         settings.skipFailedRepositories = value
+        persistSettings()
+    }
+
+    func setAutoDisableBadRepositories(_ value: Bool) {
+        settings.autoDisableBadRepositories = value
+        persistSettings()
+    }
+
+    func setBadRepositoryFailureThreshold(_ value: Int) {
+        settings.badRepositoryFailureThreshold = min(10, max(1, value))
         persistSettings()
     }
 
