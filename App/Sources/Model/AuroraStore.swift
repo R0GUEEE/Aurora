@@ -283,6 +283,20 @@ final class AuroraStore: ObservableObject {
         rebuildIndexes()
     }
 
+    func moveSources(from offsets: IndexSet, to destination: Int) {
+        sources.move(fromOffsets: offsets, toOffset: destination)
+        persistSources()
+    }
+
+    func enableFailedSources(_ enabled: Bool) {
+        let failed = Set(failedSourceIDs)
+        for index in sources.indices where failed.contains(sources[index].id) {
+            sources[index].isEnabled = enabled
+        }
+        persistSources()
+        rebuildIndexes()
+    }
+
     func setAllSourcesEnabled(_ enabled: Bool) {
         for index in sources.indices { sources[index].isEnabled = enabled }
         persistSources()
