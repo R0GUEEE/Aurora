@@ -530,7 +530,8 @@ final class AuroraStore: ObservableObject {
                         downloader: HTTPDownloader(metadataTimeout: metadataTimeout),
                         policy: RepositoryPolicy(
                             requireSignature: requireSignature,
-                            useCache: useCache
+                            useCache: useCache,
+                            maximumRefreshSeconds: max(15, Int(metadataTimeout) * 3)
                         )
                     )
                     do {
@@ -624,7 +625,8 @@ final class AuroraStore: ObservableObject {
             downloader: HTTPDownloader(metadataTimeout: TimeInterval(settings.repositoryTimeoutSeconds)),
             policy: RepositoryPolicy(
                 requireSignature: !settings.ignoreSignatureFailures,
-                useCache: useCache
+                useCache: useCache,
+                maximumRefreshSeconds: max(15, settings.repositoryTimeoutSeconds * 3)
             )
         )
     }
