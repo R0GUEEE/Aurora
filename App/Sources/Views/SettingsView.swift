@@ -227,6 +227,11 @@ struct SettingsView: View {
             }
             DetailRow(label: "Failed repositories", value: "\(store.failedSourceIDs.count)")
             DetailRow(label: "Held / pinned packages", value: "\(store.packagePolicy.pins.count)")
+            NavigationLink {
+                DiagnosticsView(store: store)
+            } label: {
+                Label("Open Diagnostics", systemImage: "stethoscope")
+            }
             if let message = store.installedError {
                 NoticeRow(symbol: "shippingbox.and.arrow.backward", text: message, color: .orange)
             }
@@ -418,6 +423,66 @@ struct BackupRestoreView: View {
             .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .navigationTitle("Restore Backup")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+
+@MainActor
+struct DiagnosticsView: View {
+    @ObservedObject var store: AuroraStore
+
+    var body: some View {
+        List {
+            Section("Environment") {
+                DetailRow(label: "Layout", value: store.environment.layout.rawValue)
+                DetailRow(label: "Architecture", value: store.environment.architecture)
+                DetailRow(label: "Repositories", value: "\(store.sources.count)")
+                DetailRow(label: "Packages", value: "\(store.totalPackageCount)")
+                DetailRow(label: "Installed", value: "\(store.installed.present.count)")
+                DetailRow(label: "Broken", value: "\(store.installed.brokenPackages.count)")
+            }
+
+            Section("Repository Failures") {
+                if store.failedSourceIDs.isEmpty {
+                    Label("No repository errors", systemImage: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                } else {
+                    Button("Retry All Failed") {
+                        Task { await store.refreshFailedSources() }
+                    }
+                    .disabled(store.refreshState.isRefreshing)
+
+                    ForEach(store.sources.filter { store.indexErrors[$0.id] != nil }) { source in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(source.name).font(.headline)
+                            Text(source.normalizedURL).font(.caption2).foregroundColor(.secondary)
+                            Text(store.indexErrors[source.id] ?? "Unknown error")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+
+            Section("Package Policy") {
+                if store.packagePolicy.pins.isEmpty {
+                    Text("No package holds or pins.")
+                        .foregroundColor(.secondary)
+                }
+                ForEach(store.packagePolicy.pins.keys.sorted(), id: \.self) { name in
+                    HStack {
+                        Text(name)
+                        Spacer()
+                        Text(store.packagePolicy.pin(for: name)?.label ?? "")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Diagnostics")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
