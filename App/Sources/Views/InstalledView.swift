@@ -39,13 +39,14 @@ struct InstalledView: View {
     }
 
     private var updates: [PackageRecord] {
-        store.installed.present.compactMap { package in
-            store.newestRecord(named: package.name, newerThan: package.version)
-        }.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        store.upgradePlan.upgradable.sorted {
+            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
     }
 
     private var orphans: [InstalledPackage] {
-        store.installed.present.filter { store.bestRecord(named: $0.name) == nil }
+        let names = Set(store.upgradePlan.orphaned)
+        return store.installed.present.filter { names.contains($0.name) }
     }
 
     @ViewBuilder private var updatesSection: some View {
