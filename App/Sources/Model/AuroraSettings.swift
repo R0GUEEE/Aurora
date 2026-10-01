@@ -45,17 +45,21 @@ struct AuroraSettings: Codable, Equatable {
     var ignoreSignatureFailures: Bool
     /// Hide packages that cannot work in a rootless layout.
     var showOnlyRootlessCompatible: Bool
+    /// Offer an explicit best-effort conversion action for legacy rootful packages.
+    var allowRootfulConversion: Bool
     var depictionPreference: DepictionPreference
 
     init(
         autoRefreshOnLaunch: Bool = true,
         ignoreSignatureFailures: Bool = true,
         showOnlyRootlessCompatible: Bool = true,
+        allowRootfulConversion: Bool = false,
         depictionPreference: DepictionPreference = .native
     ) {
         self.autoRefreshOnLaunch = autoRefreshOnLaunch
         self.ignoreSignatureFailures = ignoreSignatureFailures
         self.showOnlyRootlessCompatible = showOnlyRootlessCompatible
+        self.allowRootfulConversion = allowRootfulConversion
         self.depictionPreference = depictionPreference
     }
 
@@ -63,6 +67,7 @@ struct AuroraSettings: Codable, Equatable {
         case autoRefreshOnLaunch
         case ignoreSignatureFailures
         case showOnlyRootlessCompatible
+        case allowRootfulConversion
         case depictionPreference
     }
 
@@ -74,6 +79,8 @@ struct AuroraSettings: Codable, Equatable {
             (try? container.decode(Bool.self, forKey: .ignoreSignatureFailures)) ?? true
         self.showOnlyRootlessCompatible =
             (try? container.decode(Bool.self, forKey: .showOnlyRootlessCompatible)) ?? true
+        self.allowRootfulConversion =
+            (try? container.decode(Bool.self, forKey: .allowRootfulConversion)) ?? false
         self.depictionPreference =
             (try? container.decode(DepictionPreference.self, forKey: .depictionPreference)) ?? .native
     }
