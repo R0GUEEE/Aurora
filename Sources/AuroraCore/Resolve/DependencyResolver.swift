@@ -408,14 +408,13 @@ private final class Resolution {
         requestedArchitecture: String
     ) -> PackageRecord? {
         for term in clause.alternatives {
-            let matches = available.rankedMatches(
+            guard let candidate = available.bestMatch(
                 for: term,
                 architecture: policy.architecture,
                 requestedArchitecture: requestedArchitecture,
                 allowedArchitectures: policy.allowedArchitectures,
                 policy: policy.packagePolicy
-            )
-            guard let candidate = matches.first else { continue }
+            ) else { continue }
 
             // Already the right instance at the right version: nothing to add, and
             // *not* an error.
@@ -431,13 +430,13 @@ private final class Resolution {
         errors.append(.unsatisfiedDependency(package: because, clause: clause.description))
         // Report the individual names when nothing at all matched, so the UI can
         // say exactly which package is missing.
-        for term in clause.alternatives where available.rankedMatches(
+        for term in clause.alternatives where available.bestMatch(
             for: DependencyTerm(name: term.name),
             architecture: policy.architecture,
             requestedArchitecture: requestedArchitecture,
             allowedArchitectures: policy.allowedArchitectures,
             policy: policy.packagePolicy
-        ).isEmpty {
+        ) == nil {
             errors.append(.packageNotFound(term: term.name, requestedBy: because))
         }
         return nil
