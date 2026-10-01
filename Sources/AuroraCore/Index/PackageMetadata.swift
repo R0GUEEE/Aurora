@@ -116,12 +116,23 @@ public enum SourceInterchange {
             if let stanza = stanzas.first, let uris = stanza.string("URIs"),
                stanza.string("Types")?.split(whereSeparator: \.isWhitespace).contains(where: { $0.lowercased() == "deb" }) == true {
                 let urls = uris.split(whereSeparator: \.isWhitespace).map(String.init)
-                let suites = (stanza.string("Suites") ?? "./").split(whereSeparator: \.isWhitespace).map(String.init)
-                let sourceComponents = (stanza.string("Components") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
-                let architectures = (stanza.string("Architectures") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+                let parsedSuites = (stanza.string("Suites") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+                let parsedComponents = (stanza.string("Components") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+                let parsedArchitectures = (stanza.string("Architectures") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
                 let enabled = stanza.string("Enabled")?.lowercased() != "no"
                 for rawURL in urls {
                     guard let link = RepositoryLink.parse(rawURL) else { continue }
+
+                    let suites: [String]
+                    if stanza.has("Suites") {
+                        suites = parsedSuites.isEmpty ? ["./"] : parsedSuites
+                    } else {
+                        suites = [link.suite ?? "./"]
+                    }
+
+                    let sourceComponents = stanza.has("Components") ? parsedComponents : link.components
+                    let architectures = stanza.has("Architectures") ? parsedArchitectures : link.architectures
+
                     for suite in suites {
                         append(RepositorySource(
                             name: hostName(link.url),
