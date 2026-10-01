@@ -4,6 +4,23 @@ import AuroraCore
 
 // MARK: - Package rows
 
+/// Stable colours make missing repository artwork recognizable between launches.
+private enum IconPalette {
+    static let colors: [Color] = [
+        Color(red: 0.18, green: 0.43, blue: 0.82),
+        Color(red: 0.48, green: 0.29, blue: 0.76),
+        Color(red: 0.05, green: 0.55, blue: 0.61),
+        Color(red: 0.78, green: 0.32, blue: 0.36),
+        Color(red: 0.60, green: 0.37, blue: 0.19),
+        Color(red: 0.30, green: 0.50, blue: 0.32)
+    ]
+
+    static func color(for name: String) -> Color {
+        let index = name.unicodeScalars.reduce(0) { ($0 * 31 + Int($1.value)) % colors.count }
+        return colors[index]
+    }
+}
+
 /// The icon a repository advertises, with a placeholder while it loads and when
 /// there is none at all.
 // `@MainActor` because `AuroraStore` is main-actor isolated: only `body` is
@@ -35,16 +52,20 @@ struct PackageIcon: View {
 
     private var placeholder: some View {
         RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
-            .fill(Color.secondary.opacity(0.15))
+            .fill(LinearGradient(
+                colors: [IconPalette.color(for: fallbackText ?? "").opacity(0.78),
+                         IconPalette.color(for: fallbackText ?? "")],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            ))
             .overlay {
                 if let fallbackText, let initial = fallbackText.first {
                     Text(String(initial).uppercased())
                         .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.white)
                 } else {
                     Image(systemName: "shippingbox.fill")
                         .font(.system(size: size * 0.42))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.white)
                 }
             }
     }
@@ -294,7 +315,11 @@ struct RepositoryIcon: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                .fill(Color.secondary.opacity(0.12))
+                .fill(LinearGradient(
+                    colors: [IconPalette.color(for: source.name).opacity(0.78),
+                             IconPalette.color(for: source.name)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                ))
             if let iconURL {
                 AsyncImage(url: iconURL) { phase in
                     switch phase {
@@ -315,6 +340,6 @@ struct RepositoryIcon: View {
     private var fallback: some View {
         Text(String(source.name.prefix(1)).uppercased())
             .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
-            .foregroundColor(.secondary)
+            .foregroundStyle(.white)
     }
 }

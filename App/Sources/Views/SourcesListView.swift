@@ -14,6 +14,36 @@ struct SourcesListView: View {
     @State private var isConfirmingRestore = false
     @State private var isImportingSources = false
     @State private var isBrowsingRepoUpdates = false
+    @State private var query = ""
+    @State private var filter: SourceFilter = .all
+
+    private enum SourceFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case enabled = "Enabled"
+        case failed = "Needs Attention"
+        case disabled = "Disabled"
+        var id: String { rawValue }
+    }
+
+    private var displayedSources: [RepositorySource] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return store.sources.filter { source in
+            let matches: Bool
+            switch filter {
+            case .all: matches = true
+            case .enabled: matches = source.isEnabled
+            case .failed: matches = store.indexErrors[source.id] != nil
+            case .disabled: matches = !source.isEnabled
+            }
+            return matches && (needle.isEmpty
+                || source.name.localizedCaseInsensitiveContains(needle)
+                || source.normalizedURL.localizedCaseInsensitiveContains(needle))
+        }
+    }
+
+    private var isFiltering: Bool {
+        filter != .all || !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         List {
@@ -30,9 +60,15 @@ struct SourcesListView: View {
                         title: "No repositories",
                         message: "Add a repository by URL, or restore the defaults."
                     )
+                } else if displayedSources.isEmpty {
+                    EmptyMessage(
+                        symbol: "line.3.horizontal.decrease.circle",
+                        title: "No matching repositories",
+                        message: "Try another name or URL, or change the health filter."
+                    )
                 } else {
                     // Swipe left to delete, swipe right to refresh one repository.
-                    ForEach(store.sources) { source in
+                    ForEach(displayedSources) { source in
                         NavigationLink {
                             RepositoryDetailView(store: store, sourceID: source.id)
                         } label: {
@@ -46,15 +82,17 @@ struct SourcesListView: View {
                                 }
                                 .tint(.blue)
                             }
+                            .moveDisabled(isFiltering)
                     }
                     .onMove { offsets, destination in
-                        store.moveSources(from: offsets, to: destination)
+                        if !isFiltering { store.moveSources(from: offsets, to: destination) }
                     }
                     .onDelete { offsets in
                         // Capture the ids first: removing a source shifts the
                         // indices of the ones after it.
+                        let visible = displayedSources
                         let ids = offsets.compactMap { offset in
-                            offset < store.sources.count ? store.sources[offset].id : nil
+                            offset < visible.count ? visible[offset].id : nil
                         }
                         for id in ids {
                             store.removeSource(id: id)
@@ -62,7 +100,11 @@ struct SourcesListView: View {
                     }
                 }
             } header: {
-                Text("Repositories")
+                HStack {
+                    Text("Repositories")
+                    Spacer()
+                    if isFiltering { Text("\(displayedSources.count) of \(store.sources.count)") }
+                }
             } footer: {
                 Text("\(store.totalPackageCount) packages in the merged index.")
             }
@@ -134,6 +176,7 @@ struct SourcesListView: View {
             }
         }
         .navigationTitle("Sources")
+        .searchable(text: $query, prompt: "Repository name or URL")
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button {
@@ -149,6 +192,16 @@ struct SourcesListView: View {
                 .accessibilityLabel("Refresh all repositories")
             }
             ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Menu {
+                    Picker("Show Repositories", selection: $filter) {
+                        ForEach(SourceFilter.allCases) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                } label: {
+                    Image(systemName: filter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                }
+                .accessibilityLabel("Filter repositories")
                 EditButton()
                 Button {
                     isAddingSource = true
