@@ -22,85 +22,31 @@ struct AuroraApp: App {
 struct RootView: View {
 
     @ObservedObject var store: AuroraStore
-    @State private var selection: Tab = .browse
+    @State private var selection: AppTab = .browse
     @State private var isImportingDeb = false
-
-    enum Tab: Hashable {
-        case browse
-        case newPackages
-        case installed
-        case library
-        case sources
-        case search
-        case queue
-        case settings
-    }
 
     var body: some View {
         TabView(selection: $selection) {
-            NavigationStack {
-                BrowseView(store: store)
+            ForEach(store.settings.tabs) { tab in
+                tabView(tab)
+                    .tabItem { Label(tab.label, systemImage: tab.symbol) }
+                    .tag(tab)
+                    .badge(badge(for: tab))
             }
-            .tabItem { Label("Browse", systemImage: "square.grid.2x2") }
-            .tag(Tab.browse)
-
-            NavigationStack {
-                NewPackagesView(store: store)
-            }
-            .tabItem { Label("New", systemImage: "sparkles") }
-            .tag(Tab.newPackages)
-
-            NavigationStack {
-                InstalledView(store: store)
-            }
-            .tabItem { Label("Installed", systemImage: "shippingbox") }
-            .badge(store.upgradePlan.count)
-            .tag(Tab.installed)
-
-            NavigationStack {
-                LibraryView(store: store)
-            }
-            .tabItem { Label("Library", systemImage: "bookmark") }
-            .tag(Tab.library)
-
-            NavigationStack {
-                SourcesListView(store: store)
-            }
-            .tabItem { Label("Sources", systemImage: "square.stack.3d.up") }
-            .tag(Tab.sources)
-
-            NavigationStack {
-                SearchView(store: store)
-            }
-            .tabItem { Label("Search", systemImage: "magnifyingglass") }
-            .tag(Tab.search)
-
-            NavigationStack {
-                QueueView(store: store)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button { isImportingDeb = true } label: {
-                                Image(systemName: "doc.badge.plus")
-                            }
-                            .accessibilityLabel("Open local Debian package")
-                        }
-                    }
-            }
-            .tabItem { Label("Queue", systemImage: "arrow.down.circle") }
-            .badge(store.queueCount)
-            .tag(Tab.queue)
-
-            NavigationStack {
-                SettingsView(store: store)
-            }
-            .tabItem { Label("Settings", systemImage: "gearshape") }
-            .tag(Tab.settings)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             EnvironmentBanner(store: store)
         }
         .task {
             await store.start()
+            if !store.settings.tabs.contains(selection), let first = store.settings.tabs.first {
+                selection = first
+            }
+        }
+        .onChange(of: store.settings.tabs) { tabs in
+            if !tabs.contains(selection), let first = tabs.first {
+                selection = first
+            }
         }
         .fileImporter(
             isPresented: $isImportingDeb,
@@ -116,15 +62,55 @@ struct RootView: View {
                     store.lastError = "Select a .deb package."
                 }
             case .failure(let error):
-                store.lastError = "Could not open package: (error.localizedDescription)"
+                store.lastError = "Could not open package: \(error.localizedDescription)"
             }
         }
         .onOpenURL { url in
             guard url.pathExtension.lowercased() == "deb" else { return }
             store.stageLocalPackage(at: url)
-            selection = .queue
+            if store.settings.tabs.contains(.queue) { selection = .queue }
         }
         .auroraAlert(store)
+    }
+
+    @ViewBuilder
+    private func tabView(_ tab: AppTab) -> some View {
+        switch tab {
+        case .browse:
+            NavigationStack { BrowseView(store: store) }
+        case .newPackages:
+            NavigationStack { NewPackagesView(store: store) }
+        case .installed:
+            NavigationStack { InstalledView(store: store) }
+        case .library:
+            NavigationStack { LibraryView(store: store) }
+        case .sources:
+            NavigationStack { SourcesListView(store: store) }
+        case .search:
+            NavigationStack { SearchView(store: store) }
+        case .queue:
+            NavigationStack {
+                QueueView(store: store)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button { isImportingDeb = true } label: {
+                                Image(systemName: "doc.badge.plus")
+                            }
+                            .accessibilityLabel("Open local Debian package")
+                        }
+                    }
+            }
+        case .settings:
+            NavigationStack { SettingsView(store: store) }
+        }
+    }
+
+    private func badge(for tab: AppTab) -> Int {
+        switch tab {
+        case .installed: return store.upgradePlan.count
+        case .queue: return store.queueCount
+        default: return 0
+        }
     }
 }
 
