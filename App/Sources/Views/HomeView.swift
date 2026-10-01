@@ -5,8 +5,8 @@ import AuroraCore
 struct HomeView: View {
     @ObservedObject var store: AuroraStore
 
-    private var recent: [PackageRecord] { Array(store.newPackageRecords(limit: 8)) }
-    private var updates: [PackageRecord] { Array(store.upgradePlan.upgradable.prefix(8)) }
+    private var recent: [PackageRecord] { Array(store.newPackageRecords(limit: store.settings.homePackageLimit)) }
+    private var updates: [PackageRecord] { Array(store.upgradePlan.upgradable.prefix(store.settings.homePackageLimit)) }
 
     var body: some View {
         List {
