@@ -90,7 +90,7 @@ public actor RepositoryClient {
 
     /// Preference order for index compression: xz is by far the smallest thing
     /// every modern repository publishes.
-    public static let formatPreference: [CompressionFormat] = [.xz, .gzip, .zstd, .bzip2, .plain]
+    public static let formatPreference: [CompressionFormat] = [.xz, .gzip, .zstd, .bzip2, .lzma, .plain]
 
     public init(
         environment: JailbreakEnvironment,
@@ -152,7 +152,10 @@ public actor RepositoryClient {
             warnings.append("Flat repository: no Release file, so packages cannot be checksum-verified.")
         }
 
-        let architectures = source.architectures.isEmpty ? environment.compatibleArchitectures : source.architectures
+        let configuredArchitectures = source.architectures.isEmpty ? environment.compatibleArchitectures : source.architectures
+        // A flat repository has one Packages file, not one per architecture.
+        // Fetching it once per compatible architecture duplicates every record.
+        let architectures = source.isFlat ? [configuredArchitectures.first ?? environment.architecture] : configuredArchitectures
         var records: [PackageRecord] = []
         var tried: [String] = []
 
