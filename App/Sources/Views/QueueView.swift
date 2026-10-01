@@ -114,6 +114,7 @@ struct QueueView: View {
             TransactionProgressView(runner: active, store: store) { report in
                 runner = nil
                 if report?.succeeded == true {
+                    store.recordCompletedTransaction(active.plan)
                     store.clearQueue()
                 }
                 Task { await store.reloadInstalled() }
