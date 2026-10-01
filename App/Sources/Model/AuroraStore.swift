@@ -166,7 +166,7 @@ final class AuroraStore: ObservableObject {
         self.packagePolicy = loadedPolicy.policy
         self.policyPersistenceError = loadedPolicy.failure
 
-        // A missing or corrupt sources.json is not fatal: SourceStore returns the
+        // A missing or corrupt source file is not fatal: SourceStore returns the
         // built-in repositories and tells us why.
         let loadedSources = sourceStore.load()
         self.sources = loadedSources.list.sources
