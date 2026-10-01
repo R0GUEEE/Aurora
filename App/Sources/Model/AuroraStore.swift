@@ -238,7 +238,7 @@ final class AuroraStore: ObservableObject {
     }
 
     func removeFailedSources() {
-        let failed = Set(indexErrors.compactMap { $0.value == nil ? nil : $0.key })
+        let failed = Set(indexErrors.keys)
         guard !failed.isEmpty else { return }
         sources.removeAll { failed.contains($0.id) && !$0.isBuiltIn }
         for id in failed {
@@ -431,13 +431,13 @@ final class AuroraStore: ObservableObject {
         // Keep a rolling window full instead of waiting for the slowest member of
         // each fixed batch. This removes head-of-line blocking from dead/slow repos.
         let concurrency = min(10, max(4, enabled.count))
+        let environment = self.environment
+        let requireSignature = !settings.ignoreSignatureFailures
         var completed = 0
         var next = 0
 
         await withTaskGroup(of: RefreshOutcome.self) { group in
             func enqueue(_ source: RepositorySource) {
-                let environment = self.environment
-                let requireSignature = !self.settings.ignoreSignatureFailures
                 group.addTask {
                     let client = RepositoryClient(
                         environment: environment,
