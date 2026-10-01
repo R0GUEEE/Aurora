@@ -383,7 +383,7 @@ struct StateFilesSheet: View {
                 } header: {
                     Text("State directory")
                 } footer: {
-                    Text("sources.json and settings.json live here. Both are written atomically and a corrupt file falls back to the defaults instead of stopping Aurora.")
+                    Text("sileo.sources, its Aurora state sidecar, and settings.json live here. Repository definitions use Sileo-compatible deb822 syntax and are written atomically.")
                 }
 
                 Section {
