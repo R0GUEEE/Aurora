@@ -15,7 +15,8 @@ public struct PackageIndex: Sendable {
     public init() {}
 
     public init(records: [PackageRecord]) {
-        for record in records { append(record) }
+        self.records = records
+        rebuildLookupTables()
     }
 
     public var isEmpty: Bool { records.isEmpty }
@@ -31,14 +32,34 @@ public struct PackageIndex: Sendable {
     }
 
     public mutating func merge(_ other: PackageIndex) {
-        for record in other.records { append(record) }
+        guard !other.records.isEmpty else { return }
+        let offset = records.count
+        records.append(contentsOf: other.records)
+        for (name, indexes) in other.byName {
+            byName[name, default: []].append(contentsOf: indexes.map { $0 + offset })
+        }
+        for (name, indexes) in other.byProvidedName {
+            byProvidedName[name, default: []].append(contentsOf: indexes.map { $0 + offset })
+        }
+    }
+
+    private mutating func rebuildLookupTables() {
+        byName.removeAll(keepingCapacity: true)
+        byProvidedName.removeAll(keepingCapacity: true)
+        byName.reserveCapacity(records.count)
+        for (index, record) in records.enumerated() {
+            byName[record.name, default: []].append(index)
+            for provided in record.relations.provides {
+                byProvidedName[provided.name, default: []].append(index)
+            }
+        }
     }
 
     /// Drops everything that came from one repository, so a refresh can replace
     /// just that repository's records instead of reloading the world.
     public mutating func removeAll(from origin: RepositoryID) {
-        let kept = records.filter { $0.origin != origin }
-        self = PackageIndex(records: kept)
+        records.removeAll { $0.origin == origin }
+        rebuildLookupTables()
     }
 
     // MARK: - Lookup
