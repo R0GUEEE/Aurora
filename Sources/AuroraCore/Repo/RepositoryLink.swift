@@ -158,7 +158,8 @@ public struct RepositoryLink: Sendable, Equatable {
     }
 
     private static let metadataFileNames: Set<String> = [
-        "packages", "packages.gz", "packages.xz", "packages.zst", "packages.bz2", "packages.lzma",
+        "packages", "packages.gz", "packages.xz", "packages.zst", "packages.zstd",
+        "packages.bz2", "packages.bzip2", "packages.lzma",
         "release", "inrelease", "release.gpg", "release.asc"
     ]
 
