@@ -34,6 +34,48 @@ final class PackageIndexTests: XCTestCase {
         XCTAssertTrue(index.allVersions(of: "nothing").isEmpty)
     }
 
+    func testBestCandidateUsesPreorderedLookupBucket() {
+        let index = PackageIndex(records: [
+            record("demo", "1.0"),
+            record("demo", "3.0"),
+            record("demo", "2.0"),
+        ])
+        XCTAssertEqual(index.bestCandidate(named: "demo")?.version.raw, "3.0")
+        XCTAssertEqual(index.candidates(named: "demo").map(\.version.raw), ["3.0", "2.0", "1.0"])
+    }
+
+    func testAppendMaintainsCandidateOrdering() {
+        var index = PackageIndex()
+        index.append(record("demo", "1.0"))
+        index.append(record("demo", "3.0"))
+        index.append(record("demo", "2.0"))
+        XCTAssertEqual(index.candidates(named: "demo").map(\.version.raw), ["3.0", "2.0", "1.0"])
+        XCTAssertEqual(index.bestCandidate(named: "demo")?.version.raw, "3.0")
+    }
+
+    func testMergeMaintainsCandidateOrderingAndStableTies() {
+        let leftOrigin = RepositoryID(url: "https://left.example", suite: "./", component: "")
+        let rightOrigin = RepositoryID(url: "https://right.example", suite: "./", component: "")
+        let left = PackageIndex(records: [
+            PackageRecord(stanza: record("demo", "4.0").stanza, origin: leftOrigin),
+            PackageRecord(stanza: record("demo", "2.0").stanza, origin: leftOrigin),
+            PackageRecord(stanza: record("tie", "1.0").stanza, origin: leftOrigin),
+        ])
+        let right = PackageIndex(records: [
+            PackageRecord(stanza: record("demo", "3.0").stanza, origin: rightOrigin),
+            PackageRecord(stanza: record("demo", "1.0").stanza, origin: rightOrigin),
+            PackageRecord(stanza: record("tie", "1.0").stanza, origin: rightOrigin),
+        ])
+
+        var merged = PackageIndex()
+        merged.reserveCapacity(left.count + right.count)
+        merged.merge(left)
+        merged.merge(right)
+
+        XCTAssertEqual(merged.candidates(named: "demo").map(\.version.raw), ["4.0", "3.0", "2.0", "1.0"])
+        XCTAssertEqual(merged.candidates(named: "tie").first?.origin?.url, "https://left.example")
+    }
+
     func testSearchDeduplicatesBeforeApplyingItsResultLimit() {
         let repeated = (0..<12).map { version in
             PackageRecord(stanza: ControlStanza(fields: [
