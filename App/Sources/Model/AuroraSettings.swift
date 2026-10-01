@@ -98,6 +98,9 @@ struct AuroraSettings: Codable, Equatable {
     var compactPackageRows: Bool
     var showPackageDescriptions: Bool
     var skipFailedRepositories: Bool
+    /// Circuit breaker: quarantine repeatedly failing repositories before bulk refresh.
+    var autoDisableBadRepositories: Bool
+    var badRepositoryFailureThreshold: Int
     var refreshConcurrency: Int
     var repositoryTimeoutSeconds: Int
     var refreshFailedRepositories: Bool
@@ -129,6 +132,8 @@ struct AuroraSettings: Codable, Equatable {
         compactPackageRows: Bool = false,
         showPackageDescriptions: Bool = true,
         skipFailedRepositories: Bool = true,
+        autoDisableBadRepositories: Bool = true,
+        badRepositoryFailureThreshold: Int = 3,
         refreshConcurrency: Int = 8,
         repositoryTimeoutSeconds: Int = 12,
         refreshFailedRepositories: Bool = false,
@@ -157,6 +162,8 @@ struct AuroraSettings: Codable, Equatable {
         self.compactPackageRows = compactPackageRows
         self.showPackageDescriptions = showPackageDescriptions
         self.skipFailedRepositories = skipFailedRepositories
+        self.autoDisableBadRepositories = autoDisableBadRepositories
+        self.badRepositoryFailureThreshold = min(10, max(1, badRepositoryFailureThreshold))
         self.refreshConcurrency = min(12, max(2, refreshConcurrency))
         self.repositoryTimeoutSeconds = min(60, max(3, repositoryTimeoutSeconds))
         self.refreshFailedRepositories = refreshFailedRepositories
@@ -187,6 +194,8 @@ struct AuroraSettings: Codable, Equatable {
         case compactPackageRows
         case showPackageDescriptions
         case skipFailedRepositories
+        case autoDisableBadRepositories
+        case badRepositoryFailureThreshold
         case refreshConcurrency
         case repositoryTimeoutSeconds
         case refreshFailedRepositories
@@ -223,6 +232,8 @@ struct AuroraSettings: Codable, Equatable {
         self.compactPackageRows = (try? container.decode(Bool.self, forKey: .compactPackageRows)) ?? false
         self.showPackageDescriptions = (try? container.decode(Bool.self, forKey: .showPackageDescriptions)) ?? true
         self.skipFailedRepositories = (try? container.decode(Bool.self, forKey: .skipFailedRepositories)) ?? true
+        self.autoDisableBadRepositories = (try? container.decode(Bool.self, forKey: .autoDisableBadRepositories)) ?? true
+        self.badRepositoryFailureThreshold = min(10, max(1, (try? container.decode(Int.self, forKey: .badRepositoryFailureThreshold)) ?? 3))
         self.refreshConcurrency = min(12, max(2, (try? container.decode(Int.self, forKey: .refreshConcurrency)) ?? 8))
         self.repositoryTimeoutSeconds = min(60, max(3, (try? container.decode(Int.self, forKey: .repositoryTimeoutSeconds)) ?? 12))
         self.refreshFailedRepositories = (try? container.decode(Bool.self, forKey: .refreshFailedRepositories)) ?? false
