@@ -28,8 +28,10 @@ public struct PackageIndex: Sendable {
         records.append(record)
         normalizedSearchText.append(Self.searchText(for: record))
         byName[record.name, default: []].append(index)
+        byName[record.name]?.sort { Self.isPreferred(records[$0], records[$1]) }
         for provided in record.relations.provides {
             byProvidedName[provided.name, default: []].append(index)
+            byProvidedName[provided.name]?.sort { Self.isPreferred(records[$0], records[$1]) }
         }
     }
 
@@ -39,10 +41,18 @@ public struct PackageIndex: Sendable {
         records.append(contentsOf: other.records)
         normalizedSearchText.append(contentsOf: other.normalizedSearchText)
         for (name, indexes) in other.byName {
-            byName[name, default: []].append(contentsOf: indexes.map { $0 + offset })
+            var merged = byName[name, default: []]
+            merged.reserveCapacity(merged.count + indexes.count)
+            for index in indexes { merged.append(index + offset) }
+            merged.sort { Self.isPreferred(records[$0], records[$1]) }
+            byName[name] = merged
         }
         for (name, indexes) in other.byProvidedName {
-            byProvidedName[name, default: []].append(contentsOf: indexes.map { $0 + offset })
+            var merged = byProvidedName[name, default: []]
+            merged.reserveCapacity(merged.count + indexes.count)
+            for index in indexes { merged.append(index + offset) }
+            merged.sort { Self.isPreferred(records[$0], records[$1]) }
+            byProvidedName[name] = merged
         }
     }
 
@@ -51,11 +61,18 @@ public struct PackageIndex: Sendable {
         byProvidedName.removeAll(keepingCapacity: true)
         normalizedSearchText = records.map(Self.searchText(for:))
         byName.reserveCapacity(records.count)
+        byProvidedName.reserveCapacity(max(16, records.count / 4))
         for (index, record) in records.enumerated() {
             byName[record.name, default: []].append(index)
             for provided in record.relations.provides {
                 byProvidedName[provided.name, default: []].append(index)
             }
+        }
+        for name in byName.keys {
+            byName[name]?.sort { Self.isPreferred(records[$0], records[$1]) }
+        }
+        for name in byProvidedName.keys {
+            byProvidedName[name]?.sort { Self.isPreferred(records[$0], records[$1]) }
         }
     }
 
@@ -70,12 +87,19 @@ public struct PackageIndex: Sendable {
 
     /// Every record with that exact package name, newest version first.
     public func candidates(named name: String) -> [PackageRecord] {
-        (byName[name] ?? []).map { records[$0] }.sorted(by: Self.isPreferred)
+        (byName[name] ?? []).map { records[$0] }
+    }
+
+    /// Fast path for the common UI/resolver operation that only needs the best
+    /// candidate. Lookup tables are maintained in preferred order.
+    public func bestCandidate(named name: String) -> PackageRecord? {
+        guard let index = byName[name]?.first else { return nil }
+        return records[index]
     }
 
     /// Records that *provide* a virtual name, newest version first.
     public func providers(of name: String) -> [PackageRecord] {
-        (byProvidedName[name] ?? []).map { records[$0] }.sorted(by: Self.isPreferred)
+        (byProvidedName[name] ?? []).map { records[$0] }
     }
 
     public func allVersions(of name: String) -> [DebianVersion] {
@@ -218,16 +242,15 @@ public struct PackageIndex: Sendable {
     ) -> [PackageRecord] {
         guard limit > 0 else { return [] }
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        var results: [PackageRecord] = []
+        // Collapse to one row per name while scanning. Avoiding an intermediate
+        // array of every matching version materially reduces allocations on large
+        // repositories and keeps search responsive while the user is typing.
+        var best: [String: PackageRecord] = [:]
+        best.reserveCapacity(min(limit * 2, records.count))
         for (index, record) in records.enumerated() {
             if let section, !section.isEmpty, record.section != section { continue }
-            if (needle.isEmpty || normalizedSearchText[index].contains(needle)) && predicate(record) {
-                results.append(record)
-            }
-        }
-        // Collapse to one row per name, best version first.
-        var best: [String: PackageRecord] = [:]
-        for record in results {
+            guard needle.isEmpty || normalizedSearchText[index].contains(needle) else { continue }
+            guard predicate(record) else { continue }
             if let existing = best[record.name] {
                 if Self.isPreferred(record, existing) { best[record.name] = record }
             } else {
