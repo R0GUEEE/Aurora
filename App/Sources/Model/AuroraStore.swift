@@ -183,6 +183,9 @@ final class AuroraStore: ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
         await reloadInstalled()
+        if settings.autoCleanRepositoryData {
+            _ = cleanRepositoryData(clearFailures: false)
+        }
         if settings.autoRefreshOnLaunch {
             await refreshAll(forceReload: false)
         }
@@ -1365,6 +1368,21 @@ final class AuroraStore: ObservableObject {
         persistSources()
         rebuildIndexes()
         return "Repository data cleaned (\(AuroraFormat.bytes(Int(bytes)))). Refresh to rebuild indexes."
+    }
+
+    /// Removes downloaded repository package archives without touching indexes
+    /// or staged document imports. Safe after a completed transaction.
+    func pruneDownloadedPackages() -> String {
+        let directory = environment.cacheDirectory + "/packages"
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: directory) else { return "No downloaded packages to clean." }
+        do {
+            try manager.removeItem(atPath: directory)
+            try manager.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            return "Downloaded package cache cleaned."
+        } catch {
+            return "Could not clean downloaded packages: \(AuroraFormat.message(for: error))"
+        }
     }
 
     /// Remove copied local .deb files that are no longer referenced by the
