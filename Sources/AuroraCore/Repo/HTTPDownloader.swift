@@ -24,6 +24,7 @@ public enum TransportError: Error, CustomStringConvertible {
 public final class HTTPDownloader: NSObject, @unchecked Sendable {
 
     private let session: URLSession
+    private let baseConfiguration: URLSessionConfiguration
     private let metadataTimeout: TimeInterval
 
     public init(configuration: URLSessionConfiguration? = nil, metadataTimeout: TimeInterval = 12) {
@@ -39,6 +40,7 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
         config.httpMaximumConnectionsPerHost = 8
         config.httpAdditionalHeaders = ["User-Agent": HTTPDownloader.userAgent]
         self.metadataTimeout = min(60, max(3, metadataTimeout))
+        self.baseConfiguration = (config.copy() as? URLSessionConfiguration) ?? config
         self.session = URLSession(configuration: config)
         super.init()
     }
@@ -116,8 +118,12 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
 
     /// Streams a file to `destination`, replacing it atomically.
     ///
-    /// `destination.partial` is the staging path: the delegate moves the finished
-    /// download there, so a file at `destination` is always complete.
+    /// Package archives deliberately use a data-task delegate rather than
+    /// `URLSessionDownloadTask`. The latter asks CFNetwork to create/write its
+    /// own temporary file first and can fail with NSURLError -3000...-3005 on
+    /// some jailbreak/runtime combinations. The delegate below writes each chunk
+    /// directly to Aurora's own `.partial` file, so memory remains bounded even
+    /// for very large .deb archives and there is no hidden system temp-file step.
     public func download(
         from url: URL,
         to destination: String,
@@ -126,43 +132,24 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
         progress: ((Int64, Int64) -> Void)? = nil
     ) async throws {
         var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
 
         let fileManager = FileManager.default
         let directory = (destination as NSString).deletingLastPathComponent
-        do {
-            try fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true)
-        } catch {
-            throw TransportError.transport(directory, underlying: error)
+        if !directory.isEmpty {
+            do {
+                try fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            } catch {
+                throw TransportError.transport(directory, underlying: error)
+            }
         }
+
         let staging = destination + ".partial"
         try? fileManager.removeItem(atPath: staging)
 
-        let delegate = DownloadDelegate(
-            stagingPath: staging,
-            onProgress: progress,
-            originalURL: url,
-            allowCrossOriginRedirects: allowCrossOriginRedirects
-        )
-        var response: URLResponse
+        let response: URLResponse
         do {
-            // The delegate owns the temporary file and moves it as it finishes;
-            // the URL the async call returns is only a placeholder we ignore.
-            (_, response) = try await session.download(for: request, delegate: delegate)
-            if let failure = delegate.failure { throw failure }
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let error as URLError where error.code == .cancelled && delegate.failure == nil {
-            throw CancellationError()
-        } catch {
-            // Some jailbreak/runtime combinations return NSURLError -3000...-3005
-            // from URLSessionDownloadTask even though Aurora's cache directory is
-            // writable. In that case bypass CFNetwork's temporary download file
-            // and stream response chunks directly into Aurora's own .partial file.
-            guard Self.shouldFallbackToStreamingDownload(error) else {
-                throw TransportError.transport(url.absoluteString, underlying: error)
-            }
-            try? fileManager.removeItem(atPath: staging)
             response = try await streamDownload(
                 request: request,
                 originalURL: url,
@@ -170,6 +157,18 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
                 allowCrossOriginRedirects: allowCrossOriginRedirects,
                 progress: progress
             )
+        } catch is CancellationError {
+            try? fileManager.removeItem(atPath: staging)
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            try? fileManager.removeItem(atPath: staging)
+            throw CancellationError()
+        } catch let error as TransportError {
+            try? fileManager.removeItem(atPath: staging)
+            throw error
+        } catch {
+            try? fileManager.removeItem(atPath: staging)
+            throw TransportError.transport(url.absoluteString, underlying: error)
         }
 
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
@@ -196,18 +195,14 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
         guard fileManager.fileExists(atPath: staging) else {
             throw TransportError.transport(url.absoluteString, underlying: URLError(.cannotWriteToFile))
         }
+
         do {
             try? fileManager.removeItem(atPath: destination)
             try fileManager.moveItem(atPath: staging, toPath: destination)
         } catch {
+            try? fileManager.removeItem(atPath: staging)
             throw TransportError.transport(destination, underlying: error)
         }
-    }
-
-    static func shouldFallbackToStreamingDownload(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        guard nsError.domain == NSURLErrorDomain else { return false }
-        return (-3005 ... -3000).contains(nsError.code)
     }
 
     private func streamDownload(
@@ -217,6 +212,8 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
         allowCrossOriginRedirects: Bool,
         progress: ((Int64, Int64) -> Void)?
     ) async throws -> URLResponse {
+        try Task.checkCancellation()
+
         let delegate: StreamingDownloadDelegate
         do {
             delegate = try StreamingDownloadDelegate(
@@ -229,21 +226,19 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             throw TransportError.transport(stagingPath, underlying: error)
         }
 
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 3600
+        let config = (baseConfiguration.copy() as? URLSessionConfiguration) ?? URLSessionConfiguration.ephemeral
         config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        config.httpShouldUsePipelining = true
-        config.httpMaximumConnectionsPerHost = 8
-        config.httpAdditionalHeaders = ["User-Agent": Self.userAgent]
+        config.httpAdditionalHeaders = (config.httpAdditionalHeaders ?? [:])
+            .merging(["User-Agent": Self.userAgent]) { current, _ in current }
 
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .utility
 
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
                 delegate.start(
                     request: request,
                     configuration: config,
@@ -373,10 +368,12 @@ private final class StreamingDownloadDelegate: NSObject, URLSessionDataDelegate,
     private let originalURL: URL
     private let allowCrossOriginRedirects: Bool
     private let handle: FileHandle
+    private let stateLock = NSLock()
 
     private var session: URLSession?
     private var task: URLSessionDataTask?
     private var continuation: CheckedContinuation<URLResponse, Error>?
+    private var cancellationRequested = false
     private var response: URLResponse?
     private var received: Int64 = 0
     private var expected: Int64 = NSURLSessionTransferSizeUnknown
@@ -409,15 +406,29 @@ private final class StreamingDownloadDelegate: NSObject, URLSessionDataDelegate,
         delegateQueue: OperationQueue,
         continuation: CheckedContinuation<URLResponse, Error>
     ) {
+        stateLock.lock()
+        if cancellationRequested {
+            stateLock.unlock()
+            try? handle.close()
+            try? FileManager.default.removeItem(atPath: stagingPath)
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+
         self.continuation = continuation
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
         self.session = session
         let task = session.dataTask(with: request)
         self.task = task
+        stateLock.unlock()
         task.resume()
     }
 
     func cancel() {
+        stateLock.lock()
+        cancellationRequested = true
+        let task = self.task
+        stateLock.unlock()
         task?.cancel()
     }
 
@@ -461,7 +472,7 @@ private final class StreamingDownloadDelegate: NSObject, URLSessionDataDelegate,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
         self.response = response
-        self.expected = response.expectedContentLength
+        expected = response.expectedContentLength
         completionHandler(.allow)
     }
 
@@ -499,10 +510,16 @@ private final class StreamingDownloadDelegate: NSObject, URLSessionDataDelegate,
             result = .failure(URLError(.badServerResponse))
         }
 
-        continuation?.resume(with: result)
-        continuation = nil
+        stateLock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
         self.task = nil
-        self.session?.finishTasksAndInvalidate()
+        let session = self.session
         self.session = nil
+        stateLock.unlock()
+
+        continuation?.resume(with: result)
+        session?.finishTasksAndInvalidate()
     }
 }
+
