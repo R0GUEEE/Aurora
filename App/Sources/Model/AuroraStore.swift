@@ -229,41 +229,52 @@ final class AuroraStore: ObservableObject {
     func addSource(urlText: String, suite: String = "./", name: String) -> String? {
         let trimmedURL = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedURL.isEmpty else { return "Enter a repository URL." }
+        guard let link = RepositoryLink.parse(trimmedURL) else {
+            return "\(trimmedURL) is not a usable repository link."
+        }
 
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let host = URL(string: trimmedURL)?.host?.lowercased()
-        // Match Sileo's URL-first model: ordinary jailbreak repos are flat.
-        // Dist metadata stays internal and is synthesized only for known repos.
-        let detectedSuite: String
-        let detectedComponents: [String]
+        var repositoryURL = link.url
+        let host = URL(string: repositoryURL)?.host?.lowercased()
+
+        // Match Sileo's URL-first behavior for normal repos while retaining the
+        // distribution exceptions it applies to known repositories.
+        var detectedSuite = link.suite ?? (suite.isEmpty ? "./" : suite)
+        var detectedComponents = link.components
+        var detectedArchitectures = link.architectures
+
         if host == "apt.procurs.us" {
-            // Keep the existing Procursus suite when editing/re-adding it. Fresh
-            // installs use SourceStore's device/bootstrap default.
-            detectedSuite = sources.first(where: { $0.normalizedURL.lowercased() == "https://apt.procurs.us" })?.suite
-                ?? SourceStore.builtInSources.first(where: { $0.normalizedURL.lowercased() == "https://apt.procurs.us" })?.suite
+            repositoryURL = "https://apt.procurs.us"
+            detectedSuite = sources.first(where: { $0.normalizedURL.lowercased() == repositoryURL })?.suite
+                ?? SourceStore.builtInSources.first(where: { $0.normalizedURL.lowercased() == repositoryURL })?.suite
                 ?? "iphoneos-arm64/1800"
             detectedComponents = ["main"]
+            detectedArchitectures = []
         } else if ["apt.bigboss.org", "apt.thebigboss.org", "thebigboss.org", "bigboss.org"].contains(host ?? "") {
+            // Sileo rewrites BigBoss aliases to its canonical APT endpoint.
+            repositoryURL = "http://apt.thebigboss.org/repofiles/cydia"
             detectedSuite = "stable"
             detectedComponents = ["main"]
-        } else {
+            detectedArchitectures = []
+        } else if link.suite == nil {
+            // Like Sileo/Zebra, a plain repository URL means a flat source.
             detectedSuite = "./"
             detectedComponents = []
         }
+
         let candidate = RepositorySource(
-            name: trimmedName.isEmpty ? Self.derivedName(for: trimmedURL) : trimmedName,
-            url: trimmedURL,
+            name: trimmedName.isEmpty ? Self.derivedName(for: repositoryURL) : trimmedName,
+            url: repositoryURL,
             suite: detectedSuite,
-            components: detectedComponents
+            components: detectedComponents,
+            architectures: detectedArchitectures
         )
         guard candidate.isValid else {
-            return "\(trimmedURL) is not a usable repository URL: it needs a scheme (http:// or https://) and a host."
+            return "\(trimmedURL) is not a usable repository URL."
         }
 
         var list = RepositoryList(sources: sources)
         do {
-            // RepositoryList rejects a duplicate before it can double every
-            // package in the store.
             try list.add(candidate)
         } catch {
             return AuroraFormat.message(for: error)
