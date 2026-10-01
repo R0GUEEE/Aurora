@@ -55,7 +55,7 @@ struct LibraryView: View {
             return savedNames.joined(separator: "\n")
         case .collections:
             return collections.flatMap { collection in
-                ["[(collection)]"] + store.packageNames(inCollection: collection)
+                ["[\(collection)]"] + store.packageNames(inCollection: collection)
             }.joined(separator: "\n")
         case .recent:
             return recentVisits.map {
@@ -105,15 +105,15 @@ struct LibraryView: View {
                         }
                     }
 
-                    ShareLink(item: exportText, subject: Text("Aurora (selection.rawValue)")) {
-                        Label("Share (selection.rawValue)", systemImage: "square.and.arrow.up")
+                    ShareLink(item: exportText, subject: Text("Aurora \(selection.rawValue)")) {
+                        Label("Share \(selection.rawValue)", systemImage: "square.and.arrow.up")
                     }
                     .disabled(exportText.isEmpty)
 
                     if selection == .bookmarks {
                         Button {
                             let result = store.queueMissingBookmarks()
-                            message = "Queued (result.queued) missing packages; (result.skipped) unavailable or incompatible. Open Queue to review."
+                            message = "Queued \(result.queued) missing packages; \(result.skipped) unavailable or incompatible. Open Queue to review."
                         } label: {
                             Label("Queue Missing Bookmarks", systemImage: "tray.and.arrow.down")
                         }
@@ -149,7 +149,7 @@ struct LibraryView: View {
                 if let error = store.createCollection(named: newCollectionName) {
                     message = error
                 } else {
-                    message = "Created “(newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines))”."
+                    message = "Created “\(newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines))”."
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -173,14 +173,14 @@ struct LibraryView: View {
         if savedNames.isEmpty {
             EmptyMessage(
                 symbol: selection == .hidden ? "eye.slash" : "bookmark",
-                title: query.isEmpty ? "No (selection.rawValue)" : "No matches",
+                title: query.isEmpty ? "No \(selection.rawValue)" : "No matches",
                 message: selection == .hidden
                     ? "Packages hidden from discovery appear here. Swipe to show them again."
                     : "Bookmark packages from their detail page. Saved IDs remain here even when their repository is unavailable."
             )
         }
 
-        ForEach(savedNames, id: .self) { name in
+        ForEach(savedNames, id: \.self) { name in
             savedRow(name)
                 .swipeActions(edge: .trailing) {
                     if selection == .hidden {
@@ -206,7 +206,7 @@ struct LibraryView: View {
             )
         }
 
-        ForEach(collections, id: .self) { name in
+        ForEach(collections, id: \.self) { name in
             NavigationLink {
                 PackageCollectionView(store: store, collection: name)
             } label: {
@@ -215,7 +215,8 @@ struct LibraryView: View {
                         .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(name)
-                        Text("(store.packageNames(inCollection: name).count) package(store.packageNames(inCollection: name).count == 1 ? "" : "s")")
+                        let count = store.packageNames(inCollection: name).count
+                        Text("\(count) package\(count == 1 ? "" : "s")")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -261,7 +262,7 @@ struct LibraryView: View {
                         }
                     }
                 } else {
-                    unavailableRow(visit.package, subtitle: "Viewed (visit.date.formatted(date: .abbreviated, time: .shortened))")
+                    unavailableRow(visit.package, subtitle: "Viewed \(visit.date.formatted(date: .abbreviated, time: .shortened))")
                 }
             }
         }
@@ -324,7 +325,7 @@ struct LibraryView: View {
     private func historyRow(_ event: PackageActivity) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(event.package)
-            Text("(event.kind.rawValue.capitalized)(event.version.map { " · ($0)" } ?? "")")
+            Text("\(event.kind.rawValue.capitalized)\(event.version.map { " · \($0)" } ?? "")")
                 .font(.caption).foregroundStyle(.secondary)
             Text(event.date.formatted(date: .abbreviated, time: .shortened))
                 .font(.caption2).foregroundStyle(.secondary)
@@ -366,7 +367,7 @@ private struct PackageCollectionView: View {
                 )
             }
 
-            ForEach(names, id: .self) { name in
+            ForEach(names, id: \.self) { name in
                 if let record = store.bestRecord(named: name) {
                     NavigationLink { PackageDetailView(store: store, record: record) } label: {
                         PackageRow(
@@ -413,10 +414,26 @@ private struct PackageCollectionView: View {
         .searchable(text: $query, prompt: "Search collection")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                ShareLink(item: exportText, subject: Text("Aurora (collection)")) {
-                    Image(systemName: "square.and.arrow.up")
+                Menu {
+                    Button {
+                        let result = store.queueMissingPackages(store.packageNames(inCollection: collection))
+                        message = "Queued \(result.queued) packages; \(result.skipped) unavailable or incompatible."
+                    } label: {
+                        Label("Queue Missing Packages", systemImage: "tray.and.arrow.down")
+                    }
+                    .disabled(store.packageNames(inCollection: collection).isEmpty)
+
+                    NavigationLink { QueueView(store: store) } label: {
+                        Label("Review Queue", systemImage: "tray")
+                    }
+
+                    ShareLink(item: exportText, subject: Text("Aurora \(collection)")) {
+                        Label("Share Collection", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(exportText.isEmpty)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
-                .disabled(exportText.isEmpty)
             }
         }
     }
