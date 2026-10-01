@@ -1132,6 +1132,65 @@ final class AuroraStore: ObservableObject {
         persistUserLibrary()
     }
 
+    var collectionNames: [String] {
+        userLibrary.collections.keys.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+    }
+
+    func packageNames(inCollection name: String) -> [String] {
+        Array(userLibrary.collections[name] ?? []).sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+    }
+
+    func isInCollection(_ package: String, collection: String) -> Bool {
+        userLibrary.collections[collection]?.contains(package) == true
+    }
+
+    /// Creates a collection. Returns a user-facing validation error, or nil on success.
+    func createCollection(named rawName: String) -> String? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return "Enter a collection name." }
+        guard name.count <= 64 else { return "Collection names are limited to 64 characters." }
+        guard !userLibrary.collections.keys.contains(where: {
+            $0.caseInsensitiveCompare(name) == .orderedSame
+        }) else { return "A collection named “\(name)” already exists." }
+        userLibrary.collections[name] = []
+        persistUserLibrary()
+        return nil
+    }
+
+    func deleteCollection(named name: String) {
+        userLibrary.collections[name] = nil
+        persistUserLibrary()
+    }
+
+    func setPackage(_ package: String, inCollection collection: String, included: Bool) {
+        guard userLibrary.collections[collection] != nil else { return }
+        if included { userLibrary.collections[collection, default: []].insert(package) }
+        else { userLibrary.collections[collection]?.remove(package) }
+        persistUserLibrary()
+    }
+
+    var recentViewedRecords: [PackageRecord] {
+        userLibrary.recentViews.compactMap { bestRecord(named: $0.package) }
+    }
+
+    func recordPackageView(_ package: String) {
+        userLibrary.recentViews.removeAll { $0.package == package }
+        userLibrary.recentViews.insert(PackageVisit(package: package), at: 0)
+        if userLibrary.recentViews.count > 50 {
+            userLibrary.recentViews = Array(userLibrary.recentViews.prefix(50))
+        }
+        persistUserLibrary()
+    }
+
+    func clearRecentViews() {
+        userLibrary.recentViews.removeAll()
+        persistUserLibrary()
+    }
+
     /// Stage missing bookmarked packages once, then resolve the complete queue.
     /// Existing queue decisions and installed packages are left alone.
     func queueMissingBookmarks() -> (queued: Int, skipped: Int) {
@@ -1220,7 +1279,7 @@ final class AuroraStore: ObservableObject {
 
     private func persistUserLibrary() {
         do { try userLibrary.save() }
-        catch { lastError = "Could not save bookmarks/history: \(AuroraFormat.message(for: error))" }
+        catch { lastError = "Could not save library state: \(AuroraFormat.message(for: error))" }
     }
 
     func stage(_ action: PackageAction) {
