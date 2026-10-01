@@ -117,14 +117,18 @@ public enum SourceInterchange {
                stanza.string("Types")?.split(whereSeparator: \.isWhitespace).contains(where: { $0.lowercased() == "deb" }) == true {
                 let urls = uris.split(whereSeparator: \.isWhitespace).map(String.init)
                 let suites = (stanza.string("Suites") ?? "./").split(whereSeparator: \.isWhitespace).map(String.init)
-                let components = (stanza.string("Components") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+                let sourceComponents = (stanza.string("Components") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
                 let architectures = (stanza.string("Architectures") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
                 let enabled = stanza.string("Enabled")?.lowercased() != "no"
-                for url in urls {
+                for rawURL in urls {
+                    guard let link = RepositoryLink.parse(rawURL) else { continue }
                     for suite in suites {
                         append(RepositorySource(
-                            name: hostName(url), url: url, suite: suite,
-                            components: components, architectures: architectures,
+                            name: hostName(link.url),
+                            url: link.url,
+                            suite: suite,
+                            components: sourceComponents,
+                            architectures: architectures,
                             isEnabled: enabled
                         ))
                     }
@@ -142,24 +146,33 @@ public enum SourceInterchange {
                     let urlIndex = fields[1].hasPrefix("[")
                         ? (fields[1...].firstIndex(where: { $0.hasSuffix("]") }).map { $0 + 1 } ?? fields.count)
                         : 1
-                    if urlIndex < fields.count {
-                        let url = fields[urlIndex]
-                        let suite = fields.count > urlIndex + 1 ? fields[urlIndex + 1] : "./"
-                        let components = fields.count > urlIndex + 2 ? Array(fields.dropFirst(urlIndex + 2)) : []
+                    if urlIndex < fields.count,
+                       let link = RepositoryLink.parse(fields[urlIndex]) {
+                        let suite = fields.count > urlIndex + 1 ? fields[urlIndex + 1] : (link.suite ?? "./")
+                        let explicitComponents = fields.count > urlIndex + 2 ? Array(fields.dropFirst(urlIndex + 2)) : []
                         let options = fields[1..<urlIndex].joined(separator: " ")
                             .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-                        let architectures = options.split(whereSeparator: \.isWhitespace)
+                        let optionArchitectures = options.split(whereSeparator: \.isWhitespace)
                             .first(where: { $0.hasPrefix("arch=") })
                             .map { String($0.dropFirst(5)).split(separator: ",").map(String.init) } ?? []
                         source = RepositorySource(
-                            name: hostName(url), url: url, suite: suite,
-                            components: components, architectures: architectures
+                            name: hostName(link.url),
+                            url: link.url,
+                            suite: suite,
+                            components: explicitComponents.isEmpty ? link.components : explicitComponents,
+                            architectures: optionArchitectures.isEmpty ? link.architectures : optionArchitectures
                         )
                     } else {
                         source = nil
                     }
-                } else if line.hasPrefix("http://") || line.hasPrefix("https://") {
-                    source = RepositorySource(name: hostName(line), url: line, suite: "./")
+                } else if let link = RepositoryLink.parse(line) {
+                    source = RepositorySource(
+                        name: hostName(link.url),
+                        url: link.url,
+                        suite: link.suite ?? "./",
+                        components: link.components,
+                        architectures: link.architectures
+                    )
                 } else {
                     source = nil
                 }
