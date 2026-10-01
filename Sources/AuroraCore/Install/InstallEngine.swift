@@ -110,6 +110,12 @@ public actor InstallEngine {
         }
     }
 
+    /// Stable key for a concrete package instance. Package name alone is unsafe:
+    /// Multi-Arch transactions may contain the same name for multiple architectures.
+    public static func archiveKey(for record: PackageRecord) -> String {
+        "\(record.name):\(record.architecture)=\(record.version.raw)"
+    }
+
     /// Downloads and verifies every package in the plan, returning local paths.
     ///
     /// Split out from ``execute`` because the UI wants to show a queue that is
@@ -132,7 +138,7 @@ public actor InstallEngine {
             }
             progress?(.verifying(package: record.name))
             try verify(record: record, at: path)
-            localPaths[record.name] = path
+            localPaths[Self.archiveKey(for: record)] = path
         }
         return localPaths
     }
@@ -211,7 +217,7 @@ public actor InstallEngine {
         for step in plan.steps {
             try Task.checkCancellation()
             guard case .unpack(let record_) = step else { continue }
-            if paths[record_.name] == nil {
+            if paths[Self.archiveKey(for: record_)] == nil {
                 if LocalPackageLoader.isLocalRecord(record_) {
                     // A local package is a file the caller already has; there is
                     // nothing to download, so being without it is a caller bug.
@@ -224,9 +230,9 @@ public actor InstallEngine {
                 let path = try await repositoryClient.fetchPackage(record_, from: source) { received, total in
                     progress?(.downloading(package: record_.name, received: received, total: total))
                 }
-                paths[record_.name] = path
+                paths[Self.archiveKey(for: record_)] = path
             }
-            if let path = paths[record_.name] {
+            if let path = paths[Self.archiveKey(for: record_)] {
                 progress?(.verifying(package: record_.name))
                 try verify(record: record_, at: path)
                 record("verified \(record_.name) \(record_.version.raw) (\((try? DebArchive(path: path).members.count) ?? 0) archive members)")
@@ -267,7 +273,7 @@ public actor InstallEngine {
         try Task.checkCancellation()
         for step in plan.steps {
             try Task.checkCancellation()
-            guard case .unpack(let record_) = step, let path = paths[record_.name] else { continue }
+            guard case .unpack(let record_) = step, let path = paths[Self.archiveKey(for: record_)] else { continue }
             progress?(.unpacking(package: record_.name))
             do {
                 _ = try await runBlocking {
