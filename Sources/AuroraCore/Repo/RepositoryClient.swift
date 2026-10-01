@@ -275,7 +275,7 @@ public actor RepositoryClient {
                         guard let indexURL = url(source, path: path) else { return nil }
                         return (indexURL, path, format)
                     }
-                    let winner: (String, CompressionFormat, Data, [String])? = await withTaskGroup(of: (String, CompressionFormat, Data?, [String]).self, returning: (String, CompressionFormat, Data, [String])?.self) { group in
+                    let winner: (String, CompressionFormat, [PackageRecord], [String])? = await withTaskGroup(of: (String, CompressionFormat, Data?, [String]).self, returning: (String, CompressionFormat, [PackageRecord], [String])?.self) { group in
                         for (indexURL, path, format) in candidates {
                             group.addTask {
                                 let outcome = await self.fetch(indexURL: indexURL, checksum: nil)
@@ -285,35 +285,41 @@ public actor RepositoryClient {
                         var collectedWarnings: [String] = []
                         while let result = await group.next() {
                             collectedWarnings.append(contentsOf: result.3)
-                            if let payload = result.2 {
+                            guard let payload = result.2 else { continue }
+                            do {
+                                let decompressed = try Decompressor.decompress(
+                                    payload,
+                                    format: result.1,
+                                    maximumOutputBytes: policy.maximumIndexBytes
+                                )
+                                let origin = RepositoryID(
+                                    url: source.normalizedURL,
+                                    suite: source.suite,
+                                    component: component
+                                )
+                                let parsed = Self.packageRecords(in: decompressed, origin: origin)
+                                // Some web servers return their HTML landing page
+                                // with status 200 for every missing Packages path.
+                                // A transport success is not an index; keep racing
+                                // until a candidate actually contains package stanzas.
+                                guard !parsed.isEmpty else {
+                                    collectedWarnings.append("\(result.0): response did not contain package records")
+                                    continue
+                                }
                                 group.cancelAll()
-                                return (result.0, result.1, payload, collectedWarnings)
+                                return (result.0, result.1, parsed, collectedWarnings)
+                            } catch {
+                                collectedWarnings.append("\(result.0): \(error)")
                             }
                         }
                         return nil
                     }
-                    if let (path, format, payload, scanWarnings) = winner {
+                    if let (path, format, parsed, scanWarnings) = winner {
                         warnings.append(contentsOf: scanWarnings)
                         tried.append(contentsOf: paths.map(\.0))
-                        do {
-                            let decompressed = try Decompressor.decompress(
-                                payload,
-                                format: format,
-                                maximumOutputBytes: policy.maximumIndexBytes
-                            )
-                            guard decompressed.count <= policy.maximumIndexBytes else {
-                                throw RepositoryError.indexTooLarge(path: path, bytes: decompressed.count)
-                            }
-                            let origin = RepositoryID(url: source.normalizedURL, suite: source.suite, component: component)
-                            records.append(contentsOf: ControlParser.parse(decompressed).compactMap { stanza in
-                                guard stanza.has("Package") else { return nil }
-                                return PackageRecord(stanza: stanza, origin: origin)
-                            })
-                            await cache?.rememberPreferredFormat(format, for: source.normalizedURL)
-                            loaded = true
-                        } catch {
-                            warnings.append("\(path): \(error)")
-                        }
+                        records.append(contentsOf: parsed)
+                        await cache?.rememberPreferredFormat(format, for: source.normalizedURL)
+                        loaded = true
                     }
                 }
 
@@ -355,11 +361,12 @@ public actor RepositoryClient {
                         suite: source.suite,
                         component: component
                     )
-                    let stanzas = ControlParser.parse(decompressed)
-                    records.append(contentsOf: stanzas.compactMap { stanza in
-                        guard stanza.has("Package") else { return nil }
-                        return PackageRecord(stanza: stanza, origin: origin)
-                    })
+                    let parsed = Self.packageRecords(in: decompressed, origin: origin)
+                    guard !parsed.isEmpty else {
+                        warnings.append("\(path): response did not contain package records")
+                        continue
+                    }
+                    records.append(contentsOf: parsed)
                     if release == nil {
                         await cache?.rememberPreferredFormat(format, for: source.normalizedURL)
                     }
@@ -392,6 +399,16 @@ public actor RepositoryClient {
     private func components(for source: RepositorySource) -> [String] {
         if source.isFlat { return [""] }
         return source.components.isEmpty ? ["main"] : source.components
+    }
+
+    /// A successful HTTP response only counts as a Packages index if its control
+    /// stanzas actually describe packages. Mirrors sometimes serve an HTML page
+    /// with status 200 for missing files.
+    static func packageRecords(in data: Data, origin: RepositoryID) -> [PackageRecord] {
+        ControlParser.parse(data).compactMap { stanza in
+            guard stanza.has("Package") else { return nil }
+            return PackageRecord(stanza: stanza, origin: origin)
+        }
     }
 
     /// `(path, format)` pairs for one component and architecture, best format first.

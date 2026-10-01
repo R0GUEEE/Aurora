@@ -53,4 +53,15 @@ final class RepositorySecurityTests: XCTestCase {
         XCTAssertTrue(RepositoryPolicy.default.requireSignature)
         XCTAssertNil(RepositoryPolicy.default.flatRepositoryRejection)
     }
+
+    func testIndexResponseMustContainPackageRecords() throws {
+        let origin = RepositoryID(url: "https://repo.example.test", suite: "./", component: "")
+        XCTAssertTrue(RepositoryClient.packageRecords(
+            in: Data("<html><body>Repository home</body></html>".utf8),
+            origin: origin
+        ).isEmpty)
+
+        let packages = try Fixture.data(Fixture.packagesIndex)
+        XCTAssertFalse(RepositoryClient.packageRecords(in: packages, origin: origin).isEmpty)
+    }
 }
