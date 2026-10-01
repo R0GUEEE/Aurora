@@ -449,7 +449,7 @@ final class AuroraStore: ObservableObject {
         let useCache = true
         // Keep a rolling window full instead of waiting for the slowest member of
         // each fixed batch. This removes head-of-line blocking from dead/slow repos.
-        let concurrency = min(10, max(4, enabled.count))
+        let concurrency = min(settings.refreshConcurrency, enabled.count)
         let environment = self.environment
         let requireSignature = !settings.ignoreSignatureFailures
         var completed = 0
@@ -701,7 +701,10 @@ final class AuroraStore: ObservableObject {
                 best[record.name] = record
             }
         }
-        return best.values.sorted { lhs, rhs in
+        let cutoff = Calendar.current.date(byAdding: .day, value: -settings.newPackageDays, to: Date()) ?? .distantPast
+        return best.values.filter { record in
+            (userLibrary.firstSeen[firstSeenKey(for: record)] ?? .distantPast) >= cutoff
+        }.sorted { lhs, rhs in
             let ld = userLibrary.firstSeen[firstSeenKey(for: lhs)] ?? .distantPast
             let rd = userLibrary.firstSeen[firstSeenKey(for: rhs)] ?? .distantPast
             if ld != rd { return ld > rd }
@@ -1042,6 +1045,21 @@ final class AuroraStore: ObservableObject {
 
     func setSkipFailedRepositories(_ value: Bool) {
         settings.skipFailedRepositories = value
+        persistSettings()
+    }
+
+    func setRefreshConcurrency(_ value: Int) {
+        settings.refreshConcurrency = min(12, max(2, value))
+        persistSettings()
+    }
+
+    func setNewPackageDays(_ value: Int) {
+        settings.newPackageDays = min(90, max(1, value))
+        persistSettings()
+    }
+
+    func setHomePackageLimit(_ value: Int) {
+        settings.homePackageLimit = min(20, max(3, value))
         persistSettings()
     }
 
