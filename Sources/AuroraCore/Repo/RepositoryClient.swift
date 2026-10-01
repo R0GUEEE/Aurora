@@ -215,7 +215,7 @@ public actor RepositoryClient {
                         guard let indexURL = url(source, path: path) else { return nil }
                         return (indexURL, path, format)
                     }
-                    let winner = await withTaskGroup(of: (String, CompressionFormat, Data?, [String]).self) { group in
+                    let winner: (String, CompressionFormat, Data, [String])? = await withTaskGroup(of: (String, CompressionFormat, Data?, [String]).self, returning: (String, CompressionFormat, Data, [String])?.self) { group in
                         for (indexURL, path, format) in candidates {
                             group.addTask {
                                 let outcome = await self.fetch(indexURL: indexURL, checksum: nil)
