@@ -265,7 +265,8 @@ final class AuroraStore: ObservableObject {
     /// remain enabled and keep their last known-good index; explicit retry is the
     /// recovery path so a dead host cannot repeatedly consume the refresh window.
     var skippedFailedSourceCount: Int {
-        sources.filter { $0.isEnabled && indexErrors[$0.id] != nil }.count
+        guard settings.skipFailedRepositories else { return 0 }
+        return sources.filter { $0.isEnabled && indexErrors[$0.id] != nil }.count
     }
 
     func restoreDefaultSources() {
@@ -425,7 +426,9 @@ final class AuroraStore: ObservableObject {
 
     func refreshAll(forceReload: Bool = true) async {
         let allEnabled = sources.filter(\.isEnabled)
-        let enabled = allEnabled.filter { indexErrors[$0.id] == nil }
+        let enabled = settings.skipFailedRepositories
+            ? allEnabled.filter { indexErrors[$0.id] == nil }
+            : allEnabled
         let skipped = allEnabled.count - enabled.count
         guard !allEnabled.isEmpty else {
             refreshState = .idle
@@ -1029,6 +1032,16 @@ final class AuroraStore: ObservableObject {
 
     func setCompactPackageRows(_ value: Bool) {
         settings.compactPackageRows = value
+        persistSettings()
+    }
+
+    func setShowPackageDescriptions(_ value: Bool) {
+        settings.showPackageDescriptions = value
+        persistSettings()
+    }
+
+    func setSkipFailedRepositories(_ value: Bool) {
+        settings.skipFailedRepositories = value
         persistSettings()
     }
 
