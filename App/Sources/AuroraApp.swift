@@ -54,9 +54,7 @@ struct RootView: View {
                 InstalledView(store: store)
             }
             .tabItem { Label("Installed", systemImage: "shippingbox") }
-            .badge(store.installed.present.filter { package in
-                store.newestRecord(named: package.name, newerThan: package.version) != nil
-            }.count)
+            .badge(store.upgradePlan.count)
             .tag(Tab.installed)
 
             NavigationStack {
