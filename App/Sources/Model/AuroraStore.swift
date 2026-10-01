@@ -1347,6 +1347,34 @@ final class AuroraStore: ObservableObject {
         }
     }
 
+    /// Ask dpkg to finish configuring packages left unpacked by an interrupted
+    /// transaction. This is the same recovery operation Aurora recommends in logs.
+    func repairPendingConfiguration() async {
+        guard environment.isUsable else {
+            lastError = "dpkg is not available on this device."
+            return
+        }
+        statusMessage = "Repairing package configuration…"
+        let environment = self.environment
+        let result: Result<Void, Error> = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    _ = try DpkgClient(environment: environment).configurePending()
+                    continuation.resume(returning: .success(()))
+                } catch {
+                    continuation.resume(returning: .failure(error))
+                }
+            }
+        }
+        switch result {
+        case .success:
+            statusMessage = "Pending package configuration repaired."
+            await reloadInstalled()
+        case .failure(let error):
+            lastError = "Repair failed: \(AuroraFormat.message(for: error))"
+        }
+    }
+
     // MARK: - Caches
 
     /// Deletes the index and package caches. The downloaded `.deb` files are what
