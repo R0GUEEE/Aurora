@@ -213,7 +213,10 @@ public enum SourceInterchange {
 
     public static func export(_ sources: [RepositorySource]) -> String {
         sources.map { source in
-            if source.isEnabled && source.architectures.isEmpty {
+            if source.isEnabled
+                && source.architectures.isEmpty
+                && (source.architectureAdditions ?? []).isEmpty
+                && (source.architectureRemovals ?? []).isEmpty {
                 if source.isFlat { return source.normalizedURL }
                 return "deb \(source.normalizedURL) \(source.suite) \(source.components.joined(separator: " "))"
             }
