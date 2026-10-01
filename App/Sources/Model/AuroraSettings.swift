@@ -183,9 +183,14 @@ struct AuroraSettings: Codable, Equatable {
     }
 
     static func sanitizedTabs(_ tabs: [AppTab]) -> [AppTab] {
+        // Home is Aurora's permanent navigation hub and owns the Settings entry
+        // point. Settings itself is no longer a tab. Migrate older saved layouts
+        // and guarantee Home remains reachable even after customization.
         var seen = Set<AppTab>()
-        let unique = tabs.filter { seen.insert($0).inserted }
-        return unique.isEmpty ? AppTab.defaultTabs : Array(unique.prefix(5))
+        var unique = tabs.filter { $0 != .settings && seen.insert($0).inserted }
+        unique.removeAll { $0 == .home }
+        unique.insert(.home, at: 0)
+        return Array(unique.prefix(5))
     }
 
 
