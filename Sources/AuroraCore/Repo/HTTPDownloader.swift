@@ -144,7 +144,7 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             originalURL: url,
             allowCrossOriginRedirects: allowCrossOriginRedirects
         )
-        let response: URLResponse
+        var response: URLResponse
         do {
             // The delegate owns the temporary file and moves it as it finishes;
             // the URL the async call returns is only a placeholder we ignore.
