@@ -42,7 +42,7 @@ env:
 jobs:
   build:
     name: Build Aurora.app (unsigned)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -109,7 +109,7 @@ jobs:
   package:
     name: Package .deb (${{ matrix.layout }})
     needs: build
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 20
     strategy:
       fail-fast: false

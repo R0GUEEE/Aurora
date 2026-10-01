@@ -29,6 +29,10 @@ options:
   # Be explicit about the Xcode format so CI (Xcode 15 on macos-14) and a local
   # Xcode do not disagree about the project file.
   xcodeVersion: "15.0"
+  # XcodeGen otherwise writes the newest objectVersion it knows, which an older
+  # Xcode refuses to open ("Unable to read project"). 56 is readable by Xcode 14
+  # and by everything newer, and supports local Swift packages.
+  objectVersion: 56
 
 packages:
   # The repository root. `App/project.yml` -> `..` -> repo root, which is where
