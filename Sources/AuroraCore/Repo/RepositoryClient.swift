@@ -91,7 +91,7 @@ public struct RepositoryPolicy: Sendable {
             return nil
         case .rejected:
             return status.shortDescription
-        case .unsigned, .unavailable:
+        case .unsigned, .untrusted, .unavailable:
             return requireSignature ? status.shortDescription : nil
         }
     }
@@ -249,6 +249,14 @@ public actor RepositoryClient {
                 case .rejected(let reason):
                     // A published but invalid signature is never silently ignored.
                     throw RepositoryError.signatureRequired(source: source.name, reason: reason)
+                case .untrusted(let reason):
+                    if policy.requireSignature {
+                        throw RepositoryError.signatureRequired(source: source.name, reason: reason)
+                    }
+                    if let rejection = policy.flatRepositoryRejection {
+                        throw RepositoryError.signatureRequired(source: source.name, reason: rejection)
+                    }
+                    warnings.append("Flat repository is signed by an untrusted key; accepted by compatibility policy.")
                 case .verified:
                     break
                 case .unsigned, .unavailable:

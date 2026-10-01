@@ -43,6 +43,30 @@ final class RepositorySecurityTests: XCTestCase {
         XCTAssertNil(compatibilityPolicy.signatureRejection(for: .unsigned))
     }
 
+    func testUntrustedSigningKeyCanBeIgnoredInCompatibilityMode() {
+        let compatibilityPolicy = RepositoryPolicy(requireSignature: false)
+        XCTAssertNil(compatibilityPolicy.signatureRejection(for: .untrusted(reason: "No public key")))
+    }
+
+    func testStrictPolicyRejectsUntrustedSigningKey() {
+        let strictPolicy = RepositoryPolicy(requireSignature: true)
+        XCTAssertNotNil(strictPolicy.signatureRejection(for: .untrusted(reason: "No public key")))
+    }
+
+    func testUnknownKeyOnlyVerifierFailureIsUntrusted() {
+        let status = SignatureVerifier.failedVerificationStatus(
+            "gpgv: Signature made today\ngpgv: Can't check signature: No public key"
+        )
+        XCTAssertEqual(status, .untrusted(reason: "gpgv: Can't check signature: No public key"))
+    }
+
+    func testBadSignatureTakesPrecedenceOverUnknownKey() {
+        let status = SignatureVerifier.failedVerificationStatus(
+            "gpgv: BAD signature from \"Repo Signer\"\ngpgv: Can't check signature: No public key"
+        )
+        XCTAssertEqual(status, .rejected(reason: "gpgv: Can't check signature: No public key"))
+    }
+
     func testRequiredSignatureRejectsUnsignedMetadataAndFlatSources() {
         let strictPolicy = RepositoryPolicy(requireSignature: true, allowFlatUnsigned: false)
         XCTAssertNotNil(strictPolicy.signatureRejection(for: .unsigned))

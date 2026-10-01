@@ -4,6 +4,9 @@ import Foundation
 public enum SignatureStatus: Sendable, Equatable {
     case verified(fingerprint: String?)
     case unsigned
+    /// The metadata is signed, but the signing key is not in Aurora/device trust stores.
+    case untrusted(reason: String)
+    /// The signature is present but cryptographically invalid or malformed.
     case rejected(reason: String)
     /// No verifier or no keyring is available on this device.
     case unavailable(reason: String)
@@ -19,6 +22,7 @@ public enum SignatureStatus: Sendable, Equatable {
         switch self {
         case .verified(let fingerprint): return fingerprint.map { "Signed by \($0)" } ?? "Signed"
         case .unsigned: return "Unsigned"
+        case .untrusted(let reason): return "Untrusted signing key: \(reason)"
         case .rejected(let reason): return "Signature rejected: \(reason)"
         case .unavailable(let reason): return "Signature not checked: \(reason)"
         }
@@ -154,12 +158,54 @@ public struct SignatureVerifier: Sendable {
             if result.succeeded {
                 return .verified(fingerprint: fingerprint(in: output))
             }
-            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            let reason = trimmed.split(separator: "\n").last.map(String.init) ?? "unknown error"
-            return .rejected(reason: reason)
+            return Self.failedVerificationStatus(output)
         } catch {
             return .unavailable(reason: "\(error)")
         }
+    }
+
+    /// Converts verifier diagnostics into a trust state. Invalid-signature
+    /// evidence always wins over unknown-key evidence so a multi-signature file
+    /// cannot hide a bad signature behind another signature whose key is missing.
+    static func failedVerificationStatus(_ output: String) -> SignatureStatus {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reason = trimmed.split(separator: "\n").last.map(String.init) ?? "unknown error"
+        let lower = output.lowercased()
+
+        let invalidMarkers = [
+            "bad signature",
+            "invalid signature",
+            "signature verification failed",
+            "malformed signature",
+            "malformed openpgp",
+            "invalid openpgp",
+            "no valid openpgp data",
+            "invalid packet",
+            "corrupt signature",
+            "corrupted signature",
+        ]
+        if invalidMarkers.contains(where: { lower.contains($0) }) {
+            return .rejected(reason: reason)
+        }
+
+        let unknownKeyMarkers = [
+            "no public key",
+            "can't check signature",
+            "cannot check signature",
+            "unknown public key",
+            "unknown signing key",
+            "public key not found",
+            "key not found",
+            "missing public key",
+            "missing key",
+            "no matching key",
+            "no suitable key",
+        ]
+        if unknownKeyMarkers.contains(where: { lower.contains($0) }) {
+            return .untrusted(reason: reason)
+        }
+
+        return .rejected(reason: reason)
     }
 
     private var childEnvironment: [String: String] {
