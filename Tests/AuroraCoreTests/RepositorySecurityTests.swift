@@ -44,8 +44,13 @@ final class RepositorySecurityTests: XCTestCase {
     }
 
     func testRequiredSignatureRejectsUnsignedMetadataAndFlatSources() {
-        let strictPolicy = RepositoryPolicy(requireSignature: true, allowFlatUnsigned: true)
+        let strictPolicy = RepositoryPolicy(requireSignature: true, allowFlatUnsigned: false)
         XCTAssertNotNil(strictPolicy.signatureRejection(for: .unsigned))
         XCTAssertNotNil(strictPolicy.flatRepositoryRejection)
+    }
+
+    func testDefaultPolicyAllowsFlatSourcesWithoutReleaseFiles() {
+        XCTAssertTrue(RepositoryPolicy.default.requireSignature)
+        XCTAssertNil(RepositoryPolicy.default.flatRepositoryRejection)
     }
 }

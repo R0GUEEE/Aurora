@@ -96,7 +96,11 @@ public struct RepositoryPolicy: Sendable {
     }
 
     public var flatRepositoryRejection: String? {
-        requireSignature || !allowFlatUnsigned ? "flat repositories cannot be signed" : nil
+        // A flat source has no Release/InRelease metadata to sign. Respect the
+        // explicit flat-source policy independently from signature enforcement
+        // for Release-backed repositories; otherwise the default policy rejects
+        // every ordinary jailbreak repo before its Packages index is scanned.
+        allowFlatUnsigned ? nil : "flat repositories cannot be signed"
     }
 }
 
