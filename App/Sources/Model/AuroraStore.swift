@@ -1206,6 +1206,31 @@ final class AuroraStore: ObservableObject {
             : "Caches cleared. Refresh to load the repositories again."
     }
 
+    /// Remove copied local .deb files that are no longer referenced by the
+    /// current queue. This keeps document imports from accumulating forever.
+    func pruneUnusedLocalPackages() -> String {
+        let directory = environment.cacheDirectory + "/LocalPackages"
+        let manager = FileManager.default
+        guard let names = try? manager.contentsOfDirectory(atPath: directory) else {
+            return "No local packages to clean."
+        }
+        let referenced = Set(queue.actions.compactMap { action -> String? in
+            switch action {
+            case .install(let record), .reinstall(let record), .upgrade(let record), .downgrade(let record):
+                guard LocalPackageLoader.isLocalRecord(record) else { return nil }
+                return record.filename.map { URL(fileURLWithPath: $0).lastPathComponent }
+            case .remove:
+                return nil
+            }
+        })
+        var removed = 0
+        for name in names where !referenced.contains(name) {
+            let path = (directory as NSString).appendingPathComponent(name)
+            if (try? manager.removeItem(atPath: path)) != nil { removed += 1 }
+        }
+        return removed == 0 ? "No unused local packages." : "Removed \(removed) unused local package\(removed == 1 ? "" : "s")."
+    }
+
     func cacheBreakdown() -> [(name: String, bytes: Int)] {
         let manager = FileManager.default
         let root = environment.cacheDirectory
