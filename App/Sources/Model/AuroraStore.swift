@@ -310,6 +310,11 @@ final class AuroraStore: ObservableObject {
         }
     }
 
+    func sourceID(matchingURL url: String) -> UUID? {
+        let normalized = RepositorySource(name: "", url: url).normalizedURL
+        return sources.last(where: { $0.normalizedURL.caseInsensitiveCompare(normalized) == .orderedSame })?.id
+    }
+
     func removeSource(id: UUID) {
         guard let removed = sources.first(where: { $0.id == id }) else { return }
         sources.removeAll { $0.id == id }
