@@ -10,7 +10,7 @@ import Foundation
 ///
 /// Only the `ar` headers are read up front, so inspecting a 500 MB package costs
 /// a few hundred bytes of I/O; member contents are read on demand.
-public struct DebArchive {
+public struct DebArchive: Sendable {
 
     public struct Member: Hashable, Sendable {
         public let name: String
