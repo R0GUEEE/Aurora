@@ -259,9 +259,9 @@ public struct PackageIndex: Sendable {
     /// Versions of a package offered for one architecture, newest first. Used by
     /// the downgrade picker, which must not offer a record it cannot install.
     public func versions(of name: String, architecture: String) -> [PackageRecord] {
+        // Filtering preserves the candidate bucket's preferred ordering.
         candidates(named: name)
             .filter { $0.architecture == architecture || $0.architecture == "all" }
-            .sorted { Self.isPreferred($0, $1) }
     }
 
     /// Newest-first by version, then by name, then by repository.
