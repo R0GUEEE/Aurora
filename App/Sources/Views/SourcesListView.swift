@@ -67,6 +67,12 @@ struct SourcesListView: View {
             Section("Repository Health") {
                 LabeledContent("Enabled", value: "\(store.sources.filter(\.isEnabled).count) / \(store.sources.count)")
                 LabeledContent("Failed", value: "\(store.failedSourceIDs.count)")
+                if store.skippedFailedSourceCount > 0 {
+                    LabeledContent("Skipped on bulk refresh", value: "\(store.skippedFailedSourceCount)")
+                    Text("Failed repositories are skipped during normal refreshes so unreachable sources cannot hold up the rest. Retry them explicitly when you want Aurora to test them again.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
                 Button("Retry Failed Repositories") {
                     Task { await store.refreshFailedSources() }
                 }
