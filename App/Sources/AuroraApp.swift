@@ -78,6 +78,8 @@ struct RootView: View {
         switch tab {
         case .browse:
             NavigationStack { BrowseView(store: store) }
+        case .home:
+            NavigationStack { HomeView(store: store) }
         case .newPackages:
             NavigationStack { NewPackagesView(store: store) }
         case .installed:
