@@ -282,7 +282,7 @@ public actor RepositoryClient {
             throw RepositoryError.signatureRequired(source: source.name, reason: rejection)
         }
 
-        let configuredArchitectures = source.architectures.isEmpty ? environment.compatibleArchitectures : source.architectures
+        let configuredArchitectures = source.effectiveArchitectures(defaults: environment.compatibleArchitectures)
         // A flat repository has one Packages file, not one per architecture.
         // Fetching it once per compatible architecture duplicates every record.
         let architectures = source.isFlat ? [configuredArchitectures.first ?? environment.architecture] : configuredArchitectures
