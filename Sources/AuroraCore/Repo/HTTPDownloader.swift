@@ -30,6 +30,13 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
         let config = configuration ?? .default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 3600
+        // Repository metadata has its own ETag/Last-Modified cache. Disabling
+        // Foundation's response cache avoids storing the same multi-megabyte
+        // indexes twice in memory/on disk and prevents stale cache-policy surprises.
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.httpShouldUsePipelining = true
+        config.httpMaximumConnectionsPerHost = 8
         config.httpAdditionalHeaders = ["User-Agent": HTTPDownloader.userAgent]
         self.metadataTimeout = min(60, max(3, metadataTimeout))
         self.session = URLSession(configuration: config)
