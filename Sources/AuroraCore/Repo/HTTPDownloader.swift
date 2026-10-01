@@ -113,6 +113,7 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
         from url: URL,
         to destination: String,
         headers: [String: String] = [:],
+        allowCrossOriginRedirects: Bool = false,
         progress: ((Int64, Int64) -> Void)? = nil
     ) async throws {
         var request = URLRequest(url: url)
@@ -142,9 +143,17 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             try? fileManager.removeItem(atPath: staging)
             throw TransportError.httpStatus(http.statusCode, url.absoluteString)
         }
-        guard let finalURL = response.url, Self.sameOrigin(url, finalURL) else {
+        guard let finalURL = response.url else {
+            try? fileManager.removeItem(atPath: staging)
+            throw TransportError.invalidURL("download completed without a final URL")
+        }
+        if !allowCrossOriginRedirects && !Self.sameOrigin(url, finalURL) {
             try? fileManager.removeItem(atPath: staging)
             throw TransportError.invalidURL("download redirected away from repository origin \(url.host ?? "?")")
+        }
+        guard let finalScheme = finalURL.scheme?.lowercased(), finalScheme == "http" || finalScheme == "https" else {
+            try? fileManager.removeItem(atPath: staging)
+            throw TransportError.invalidURL("download redirected to an unsupported URL scheme")
         }
         if let failure = delegate.failure {
             try? fileManager.removeItem(atPath: staging)
