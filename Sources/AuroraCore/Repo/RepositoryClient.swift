@@ -114,7 +114,7 @@ public actor RepositoryClient {
 
     /// Preference order for index compression: xz is by far the smallest thing
     /// every modern repository publishes.
-    public static let formatPreference: [CompressionFormat] = [.xz, .gzip, .zstd, .bzip2, .lzma, .plain]
+    public static let formatPreference: [CompressionFormat] = [.zstd, .xz, .lzma, .bzip2, .gzip, .plain]
 
     public init(
         environment: JailbreakEnvironment,
