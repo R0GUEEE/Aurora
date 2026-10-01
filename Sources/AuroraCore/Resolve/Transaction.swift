@@ -131,35 +131,64 @@ public struct PackageQueue: Hashable, Sendable {
     /// two different installations.
     public mutating func stage(_ action: PackageAction) {
         let instance = action.record?.instanceKey ?? action.name
+        // `instanceKey(for:)` reads `actions`, so the predicate cannot run while
+        // `removeAll` is mutating it — the array is copied first.
+        let existing = instances
+        let isReplacement: (PackageAction) -> Bool = { staged in
+            let stagedKey = staged.record?.instanceKey ?? staged.name
+            let key = existing[stagedKey] ?? stagedKey
+            if action.record == nil { return staged.name == action.name }
+            return key == instance
+        }
+
         // A removal speaks about the package by name, so it replaces every
         // instance staged for it; anything else replaces only its own instance,
         // which is what lets a co-installable package be queued per architecture.
-        actions.removeAll { staged in
-            if action.record == nil { return staged.name == action.name }
-            return instanceKey(for: staged) == instance
-        }
+        let kept = actions.filter { !isReplacement($0) }
         if action.record != nil {
             instances[instance] = instance
         }
-        for key in instances.keys where !actions.contains(where: { instanceKey(for: $0) == key }) {
-            instances.removeValue(forKey: key)
-        }
+        let liveKeys = Set(kept.map { staged -> String in
+            let raw = staged.record?.instanceKey ?? staged.name
+            return instances[raw] ?? raw
+        })
+        instances = instances.filter { liveKeys.contains($0.key) || $0.key == instance }
+        actions = kept
         actions.append(action)
     }
 
     public mutating func unstage(name: String) {
-        actions.removeAll { action in
-            if instanceKey(for: action) == name { return true }
-            return action.name == name
+        let existing = instances
+        let kept = actions.filter { action in
+            let raw = action.record?.instanceKey ?? action.name
+            let key = existing[raw] ?? raw
+            return key != name && action.name != name
         }
+        actions = kept
+        reconcileInstances()
     }
 
     public mutating func unstage(instanceKey key: String) {
-        actions.removeAll { instanceKey(for: $0) == key }
+        let existing = instances
+        actions = actions.filter { action in
+            let raw = action.record?.instanceKey ?? action.name
+            return (existing[raw] ?? raw) != key
+        }
+        reconcileInstances()
+    }
+
+    /// Drops the remembered instance for anything no longer staged.
+    private mutating func reconcileInstances() {
+        let live = Set(actions.map { action -> String in
+            let raw = action.record?.instanceKey ?? action.name
+            return instances[raw] ?? raw
+        })
+        instances = instances.filter { live.contains($0.key) }
     }
 
     public mutating func removeAll() {
         actions.removeAll()
+        instances.removeAll()
     }
 
     public func action(for name: String) -> PackageAction? {
