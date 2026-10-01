@@ -18,18 +18,18 @@ public struct SourceStore: Sendable {
 
     public static func defaultPath() -> String {
         #if os(macOS)
-        return (metadataDirectory() as NSString).appendingPathComponent("sileo.sources")
+        return (applicationDataDirectory() as NSString).appendingPathComponent("sileo.sources")
         #else
         let environment = JailbreakEnvironment.detect()
         if let directory = environment.aptSourcesListDirectory {
             return (directory as NSString).appendingPathComponent("sileo.sources")
         }
         // Non-jailbroken preview builds still need somewhere writable.
-        return (metadataDirectory() as NSString).appendingPathComponent("sileo.sources")
+        return (applicationDataDirectory() as NSString).appendingPathComponent("sileo.sources")
         #endif
     }
 
-    private static func metadataDirectory() -> String {
+    public static func applicationDataDirectory() -> String {
         #if os(macOS)
         return (NSHomeDirectory() as NSString).appendingPathComponent("Library/Application Support/Aurora")
         #else
@@ -49,7 +49,7 @@ public struct SourceStore: Sendable {
         // Keep Aurora-only metadata out of the real APT source directory. Custom
         // stores (tests/tools) retain the historical sibling-sidecar behavior.
         if isAPTSourceDirectory {
-            let base = SourceStore.metadataDirectory()
+            let base = SourceStore.applicationDataDirectory()
             return (base as NSString).appendingPathComponent("sources.state.json")
         }
         return ((path as NSString).deletingPathExtension as NSString)
@@ -67,11 +67,11 @@ public struct SourceStore: Sendable {
     }
 
     private var legacyJSONPath: String {
-        (SourceStore.metadataDirectory() as NSString).appendingPathComponent("sources.json")
+        (SourceStore.applicationDataDirectory() as NSString).appendingPathComponent("sources.json")
     }
 
     private var legacyPrivateSourcePath: String {
-        (SourceStore.metadataDirectory() as NSString).appendingPathComponent("sileo.sources")
+        (SourceStore.applicationDataDirectory() as NSString).appendingPathComponent("sileo.sources")
     }
 
     public struct LoadResult: Sendable {
