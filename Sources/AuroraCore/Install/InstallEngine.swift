@@ -205,7 +205,7 @@ public actor InstallEngine {
             guard case .remove(let package, let purge) = step else { continue }
             progress?(.removing(package: package.name))
             do {
-                try await runBlocking {
+                _ = try await runBlocking {
                     try self.dpkg.remove(package: package.name, purge: purge) { chunk in
                         progress?(.output(String(decoding: chunk, as: UTF8.self)))
                     }
@@ -228,7 +228,7 @@ public actor InstallEngine {
             guard case .unpack(let record_) = step, let path = paths[record_.name] else { continue }
             progress?(.unpacking(package: record_.name))
             do {
-                try await runBlocking {
+                _ = try await runBlocking {
                     try self.dpkg.unpack(debAt: path) { chunk in
                         progress?(.output(String(decoding: chunk, as: UTF8.self)))
                     }
@@ -261,7 +261,7 @@ public actor InstallEngine {
         if hasConfigureSteps || !plan.unpackSteps.isEmpty {
             for record_ in plan.unpackSteps { progress?(.configuring(package: record_.name)) }
             do {
-                try await runBlocking {
+                _ = try await runBlocking {
                     try self.dpkg.configurePending { chunk in
                         progress?(.output(String(decoding: chunk, as: UTF8.self)))
                     }
