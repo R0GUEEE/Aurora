@@ -146,7 +146,7 @@ final class RepositoryLinkTests: XCTestCase {
         let source = try XCTUnwrap(SourceInterchange.parse(
             "deb [arch=iphoneos-arm64,iphoneos-arm arch-=iphoneos-arm arch+=all trusted=yes] https://repo.example.test ./ # legacy source"
         ).first)
-        XCTAssertEqual(source.architectures, ["all", "iphoneos-arm64"])
+        XCTAssertEqual(source.architectures, ["iphoneos-arm64", "all"])
         XCTAssertTrue(source.isFlat)
     }
 
@@ -161,7 +161,7 @@ final class RepositoryLinkTests: XCTestCase {
         Architectures-Remove: iphoneos-arm
         Enabled: false
         """).first)
-        XCTAssertEqual(source.architectures, ["all", "iphoneos-arm64"])
+        XCTAssertEqual(source.architectures, ["iphoneos-arm64", "all"])
         XCTAssertFalse(source.isEnabled)
     }
 
