@@ -56,6 +56,9 @@ struct PackageIcon: View {
 struct StateBadge: View {
 
     let state: PackageState
+    var showIcon: Bool = true
+    var compact: Bool = false
+    var showDescription: Bool = true
 
     var body: some View {
         Group {
@@ -63,7 +66,7 @@ struct StateBadge: View {
                 Text(state.label)
                     .font(.caption2.weight(.medium))
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
+                    .padding(.vertical, compact ? 0 : 2)
                     .background(Capsule().fill(color.opacity(0.18)))
                     .foregroundColor(color)
             }
@@ -94,8 +97,10 @@ struct PackageRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PackageIcon(urlString: resolvedIconURL, fallbackText: record.displayName)
-            VStack(alignment: .leading, spacing: 2) {
+            if showIcon {
+                PackageIcon(urlString: resolvedIconURL, size: compact ? 34 : 44, fallbackText: record.displayName)
+            }
+            VStack(alignment: .leading, spacing: compact ? 1 : 2) {
                 Text(record.displayName)
                     .font(.body)
                     .lineLimit(1)
@@ -103,7 +108,7 @@ struct PackageRow: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
-                if !record.synopsis.isEmpty {
+                if showDescription && !compact && !record.synopsis.isEmpty {
                     Text(record.synopsis)
                         .font(.caption2)
                         .foregroundColor(.secondary)
