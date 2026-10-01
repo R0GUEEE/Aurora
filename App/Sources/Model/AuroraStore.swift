@@ -423,7 +423,10 @@ final class AuroraStore: ObservableObject {
             return
         }
         refreshState = .refreshing(done: 0, total: enabled.count)
-        let useCache = !forceReload
+        // Keep the cache available even for a forced refresh. A forced refresh means
+        // revalidate with the server; ETag/Last-Modified can still turn unchanged
+        // indexes into tiny 304 responses instead of full downloads.
+        let useCache = true
         let batchSize = 6
         var completed = 0
 
@@ -460,9 +463,12 @@ final class AuroraStore: ObservableObject {
                     refreshState = .refreshing(done: completed, total: enabled.count)
                 }
             }
-            rebuildIndexes()
         }
+        // Rebuild once after all source outcomes have landed. Rebuilding the full
+        // merged index after every network batch is O(batches × packages) and was
+        // a major cost on 50–100 source configurations.
         refreshState = .idle
+        persistSources()
         rebuildIndexes()
     }
 
@@ -486,12 +492,12 @@ final class AuroraStore: ObservableObject {
             indexErrors[id] = nil
             indexWarnings[id] = result.warnings
             signatureStatus[id] = result.signature
-            recordSourceOutcome(id: id, refreshedAt: result.fetchedAt, error: nil)
+            recordSourceOutcome(id: id, refreshedAt: result.fetchedAt, error: nil, persist: false)
         case .failure(let id, let message):
             indexErrors[id] = message
             indexWarnings[id] = []
             signatureStatus[id] = nil
-            recordSourceOutcome(id: id, refreshedAt: nil, error: message)
+            recordSourceOutcome(id: id, refreshedAt: nil, error: message, persist: false)
         }
     }
 
@@ -526,13 +532,13 @@ final class AuroraStore: ObservableObject {
         )
     }
 
-    private func recordSourceOutcome(id: UUID, refreshedAt: Date?, error: String?) {
+    private func recordSourceOutcome(id: UUID, refreshedAt: Date?, error: String?, persist: Bool = true) {
         guard let position = sources.firstIndex(where: { $0.id == id }) else { return }
         if let refreshedAt {
             sources[position].lastRefreshed = refreshedAt
         }
         sources[position].lastError = error
-        persistSources()
+        if persist { persistSources() }
     }
 
     // MARK: - Derived indexes
