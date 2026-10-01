@@ -459,6 +459,7 @@ private final class Resolution {
                 common = common.map { $0.intersection(versions) } ?? versions
             }
             guard let shared = common, !shared.isEmpty else {
+                restoreInstalledMultiArchSet(named: name)
                 warnings.append(.multiArchCannotAlign(
                     name: name,
                     reason: "no version is available for every architecture it is installed for"
@@ -471,6 +472,7 @@ private final class Resolution {
             guard let aligned = candidates.first(where: { version in
                 installedVersions.allSatisfy { DebianVersion.compare($0, version) <= 0 }
             }) else {
+                restoreInstalledMultiArchSet(named: name)
                 warnings.append(.multiArchCannotAlign(
                     name: name,
                     reason: "the only shared version is older than an installed instance"
@@ -489,9 +491,18 @@ private final class Resolution {
             }
             if !moved.isEmpty {
                 inTransaction.insert(name)
-                warnings.append(.multiArchAligned(name: name, version: aligned.raw, architectures: moved.sorted()))
+                let architectures = instances.map(\.architecture).sorted()
+                warnings.append(.multiArchAligned(name: name, version: aligned.raw, architectures: architectures))
             }
         }
+    }
+
+    private func restoreInstalledMultiArchSet(named name: String) {
+        target.removeAll(named: name)
+        for entry in installed.present where entry.name == name {
+            target.insert(entry.record)
+        }
+        inTransaction.remove(name)
     }
 
     // MARK: - Removals, conflicts, orphans
