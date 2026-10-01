@@ -75,12 +75,21 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
 
             // URLSession's download delegate normally moves the temporary file to
             // the staging path, but some Foundation builds return before that move
-            // is visible. The async API also gives us the completed temporary URL,
-            // so use it as a safe fallback instead of reporting missing metadata.
-            let readableURL = FileManager.default.fileExists(atPath: staging)
-                ? URL(fileURLWithPath: staging)
-                : temporaryURL
-            let data = try Data(contentsOf: readableURL, options: .mappedIfSafe)
+            // is visible. There is also a narrow race where the file can move
+            // after we choose the temporary URL but before Data opens it, so retry
+            // the stable staging path if that first read loses the race.
+            let stagingURL = URL(fileURLWithPath: staging)
+            let data: Data
+            if FileManager.default.fileExists(atPath: staging) {
+                data = try Data(contentsOf: stagingURL, options: .mappedIfSafe)
+            } else {
+                do {
+                    data = try Data(contentsOf: temporaryURL, options: .mappedIfSafe)
+                } catch {
+                    guard FileManager.default.fileExists(atPath: staging) else { throw error }
+                    data = try Data(contentsOf: stagingURL, options: .mappedIfSafe)
+                }
+            }
             guard data.count <= byteLimit else { throw TransportError.responseTooLarge(Int64(byteLimit)) }
             return (data, http)
         } catch let error as TransportError {
