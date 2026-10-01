@@ -139,6 +139,23 @@ public struct DependencySatisfier: Sendable {
         return true
     }
 
+    private func matchesIgnoringPolicy(
+        _ term: DependencyTerm,
+        candidate: PackageRecord,
+        requestedArchitecture: String
+    ) -> Bool {
+        guard architectureRank(term, candidate: candidate, requestedArchitecture: requestedArchitecture) != nil else { return false }
+        if candidate.name == term.name {
+            return term.constraint?.isSatisfied(by: candidate.version) ?? true
+        }
+        guard let provided = candidate.relations.provides.first(where: { $0.name == term.name }) else { return false }
+        if let constraint = term.constraint {
+            guard let version = provided.version else { return false }
+            return constraint.isSatisfied(by: version)
+        }
+        return true
+    }
+
     /// Every record in `candidates` that satisfies the clause, best first.
     ///
     /// Ordering is: most direct architecture, then repository priority, then
@@ -158,7 +175,8 @@ public struct DependencySatisfier: Sendable {
                     candidate: candidate,
                     requestedArchitecture: requestedArchitecture
                 ) else { continue }
-                guard matches(term, candidate: candidate, requestedArchitecture: requestedArchitecture) else {
+                guard effectivePolicy.allows(candidate.name) else { continue }
+                guard matchesIgnoringPolicy(term, candidate: candidate, requestedArchitecture: requestedArchitecture) else {
                     continue
                 }
                 if let required = effectivePolicy.requiredVersion(for: candidate.name),
@@ -206,12 +224,14 @@ public struct DependencySatisfier: Sendable {
         // package is a stand-in, and installing the stand-in when the real thing is
         // available is never what was meant.
         if lhs.providedRank != rhs.providedRank { return lhs.providedRank < rhs.providedRank }
+        // Repository priority is a tie-break between equivalent versions; it
+        // must never make an older package beat a newer one.
+        let order = DebianVersion.compare(lhs.record.version, rhs.record.version)
+        if order != 0 { return order > 0 }
+
         let lhsPriority = policy.priority(of: lhs.record)
         let rhsPriority = policy.priority(of: rhs.record)
         if lhsPriority != rhsPriority { return lhsPriority > rhsPriority }
-
-        let order = DebianVersion.compare(lhs.record.version, rhs.record.version)
-        if order != 0 { return order > 0 }
         if lhs.record.name != rhs.record.name { return lhs.record.name < rhs.record.name }
         return (lhs.record.origin?.description ?? "") < (rhs.record.origin?.description ?? "")
     }
