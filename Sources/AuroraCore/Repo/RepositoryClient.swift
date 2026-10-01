@@ -161,7 +161,18 @@ public actor RepositoryClient {
 
         for architecture in architectures {
             for component in components(for: source) {
-                let paths = indexPaths(source: source, architecture: architecture, component: component)
+                var paths = indexPaths(source: source, architecture: architecture, component: component)
+                // Flat repositories do not publish a Release manifest. Prefer the
+                // compression format that worked last time, but always fall back to
+                // every supported format. Repositories commonly change Packages.xz
+                // to Packages.gz (or vice versa); pinning the cached format forever
+                // makes a healthy source appear permanently broken.
+                if release == nil,
+                   let preferred = await cache?.preferredFormat(for: source.normalizedURL),
+                   let position = paths.firstIndex(where: { $0.1 == preferred }) {
+                    let hit = paths.remove(at: position)
+                    paths.insert(hit, at: 0)
+                }
                 var loaded = false
                 for (path, format) in paths {
                     tried.append(path)
@@ -174,12 +185,6 @@ public actor RepositoryClient {
                     if let release {
                         expected = release.checksum(forPath: path)
                         if expected == nil { continue }
-                    } else if let cachedFormat = await cache?.preferredFormat(for: source.normalizedURL),
-                              cachedFormat != format {
-                        // Flat/legacy repositories have no Release manifest. Remember
-                        // the last format that actually worked so the common refresh
-                        // path is one request rather than up to six 404/timeouts.
-                        continue
                     }
 
                     let outcome = await fetch(indexURL: indexURL, checksum: expected)
