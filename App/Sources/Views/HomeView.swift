@@ -45,6 +45,16 @@ struct HomeView: View {
                 }
             }
 
+            Section("More") {
+                ForEach(moreDestinations) { destination in
+                    NavigationLink {
+                        destinationView(destination)
+                    } label: {
+                        Label(destination.label, systemImage: destination.symbol)
+                    }
+                }
+            }
+
             if !store.failedSourceIDs.isEmpty {
                 Section {
                     Button {
@@ -60,13 +70,42 @@ struct HomeView: View {
         .navigationTitle("Aurora")
         .refreshable { await store.refreshAll() }
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Button { Task { await store.refreshAll() } } label: {
                     if store.refreshState.isRefreshing { ProgressView() }
                     else { Image(systemName: "arrow.clockwise") }
                 }
                 .disabled(store.refreshState.isRefreshing)
+
+                NavigationLink {
+                    SettingsView(store: store)
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Settings")
             }
+        }
+    }
+
+
+    private var moreDestinations: [AppTab] {
+        AppTab.allCases.filter {
+            $0 != .home && $0 != .settings && !store.settings.tabs.contains($0)
+        }
+    }
+
+    @ViewBuilder
+    private func destinationView(_ destination: AppTab) -> some View {
+        switch destination {
+        case .browse: BrowseView(store: store)
+        case .newPackages: NewPackagesView(store: store)
+        case .installed: InstalledView(store: store)
+        case .library: LibraryView(store: store)
+        case .sources: SourcesListView(store: store)
+        case .search: SearchView(store: store)
+        case .queue: QueueView(store: store)
+        case .settings: SettingsView(store: store)
+        case .home: EmptyView()
         }
     }
 
