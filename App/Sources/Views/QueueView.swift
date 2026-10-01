@@ -11,6 +11,7 @@ struct QueueView: View {
     @ObservedObject var store: AuroraStore
 
     @State private var runner: TransactionRunner?
+    @State private var pendingPlan: TransactionPlan?
 
     var body: some View {
         List {
@@ -109,6 +110,24 @@ struct QueueView: View {
             if !store.queue.isEmpty {
                 confirmBar
             }
+        }
+        .confirmationDialog(
+            "Install queued changes?",
+            isPresented: Binding(
+                get: { pendingPlan != nil },
+                set: { if !$0 { pendingPlan = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Install") {
+                if let plan = pendingPlan {
+                    pendingPlan = nil
+                    start(plan)
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingPlan = nil }
+        } message: {
+            Text(pendingPlan?.summary ?? "")
         }
         .sheet(item: $runner) { active in
             TransactionProgressView(runner: active, store: store) { report in
@@ -213,7 +232,7 @@ struct QueueView: View {
                 Button {
                     confirm()
                 } label: {
-                    Text("Confirm").bold()
+                    Text(store.settings.confirmQueueBeforeInstall ? "Confirm" : "Install").bold()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!store.queueAnalysis.canConfirm)
@@ -236,13 +255,21 @@ struct QueueView: View {
                 store.lastError = "There is nothing to do: every staged package is already in that state."
                 return
             }
-            let active = TransactionRunner(
-                plan: plan,
-                sources: store.sources,
-                environment: store.environment
-            )
-            runner = active
-            active.start()
+            if store.settings.confirmQueueBeforeInstall {
+                pendingPlan = plan
+            } else {
+                start(plan)
+            }
         }
+    }
+
+    private func start(_ plan: TransactionPlan) {
+        let active = TransactionRunner(
+            plan: plan,
+            sources: store.sources,
+            environment: store.environment
+        )
+        runner = active
+        active.start()
     }
 }
