@@ -47,6 +47,9 @@ struct SourcesListView: View {
                                 .tint(.blue)
                             }
                     }
+                    .onMove { offsets, destination in
+                        store.moveSources(from: offsets, to: destination)
+                    }
                     .onDelete { offsets in
                         // Capture the ids first: removing a source shifts the
                         // indices of the ones after it.
@@ -81,6 +84,10 @@ struct SourcesListView: View {
                 Menu("Bulk Actions") {
                     Button("Enable All") { store.setAllSourcesEnabled(true) }
                     Button("Disable All") { store.setAllSourcesEnabled(false) }
+                    Button("Enable Failed") { store.enableFailedSources(true) }
+                        .disabled(store.failedSourceIDs.isEmpty)
+                    Button("Disable Failed") { store.enableFailedSources(false) }
+                        .disabled(store.failedSourceIDs.isEmpty)
                     Button("Remove Failed Custom Repositories", role: .destructive) {
                         store.removeFailedSources()
                     }
@@ -137,7 +144,8 @@ struct SourcesListView: View {
                 .disabled(store.refreshState.isRefreshing)
                 .accessibilityLabel("Refresh all repositories")
             }
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                EditButton()
                 Button {
                     isAddingSource = true
                 } label: {
