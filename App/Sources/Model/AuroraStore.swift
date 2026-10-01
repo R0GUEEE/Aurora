@@ -103,6 +103,7 @@ final class AuroraStore: ObservableObject {
     @Published private(set) var settingsPersistenceError: String?
 
     @Published var queue = PackageQueue()
+    @Published private(set) var userLibrary = UserLibraryState.load()
     /// The queue screen's model: staged changes plus what the resolver makes of
     /// them. Recomputing a plan touches every loaded record, so it is done when
     /// the queue or the indexes change, never from a view body.
@@ -468,6 +469,26 @@ final class AuroraStore: ObservableObject {
     // MARK: - Queue
 
     var queueCount: Int { queue.count }
+
+    var packageHistory: [PackageActivity] { userLibrary.history }
+
+    var bookmarkedRecords: [PackageRecord] {
+        userLibrary.bookmarks.compactMap { bestRecord(named: $0) }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    func isBookmarked(_ name: String) -> Bool { userLibrary.bookmarks.contains(name) }
+
+    func toggleBookmark(_ name: String) {
+        if userLibrary.bookmarks.contains(name) { userLibrary.bookmarks.remove(name) }
+        else { userLibrary.bookmarks.insert(name) }
+        persistUserLibrary()
+    }
+
+    private func persistUserLibrary() {
+        do { try userLibrary.save() }
+        catch { lastError = "Could not save bookmarks/history: \(AuroraFormat.message(for: error))" }
+    }
 
     func stage(_ action: PackageAction) {
         queue.stage(action)
