@@ -20,6 +20,7 @@ struct SettingsView: View {
             refreshSection
             renderingSection
             tabsSection
+            backupSection
             storageSection
             diagnosticsSection
             aboutSection
@@ -141,6 +142,25 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Backup
+
+    private var backupSection: some View {
+        Section {
+            ShareLink(item: store.exportedBackup, subject: Text("Aurora Backup")) {
+                Label("Export Aurora Backup", systemImage: "square.and.arrow.up")
+            }
+            NavigationLink {
+                BackupRestoreView(store: store)
+            } label: {
+                Label("Restore Backup", systemImage: "arrow.counterclockwise.icloud")
+            }
+        } header: {
+            Text("Backup & Restore")
+        } footer: {
+            Text("Backups include sources, settings, tab layout, bookmarks, hidden packages, package holds/pins and the installed-package manifest.")
+        }
+    }
+
     // MARK: - Storage
 
     private var storageSection: some View {
@@ -178,6 +198,11 @@ struct SettingsView: View {
             if let message = store.settingsPersistenceError {
                 NoticeRow(symbol: "gearshape.badge.xmark", text: message, color: .orange)
             }
+            if let message = store.policyPersistenceError {
+                NoticeRow(symbol: "pin.slash", text: message, color: .orange)
+            }
+            DetailRow(label: "Failed repositories", value: "\(store.failedSourceIDs.count)")
+            DetailRow(label: "Held / pinned packages", value: "\(store.packagePolicy.pins.count)")
             if let message = store.installedError {
                 NoticeRow(symbol: "shippingbox.and.arrow.backward", text: message, color: .orange)
             }
@@ -342,5 +367,33 @@ struct TabCustomizationView: View {
     private func add(_ tab: AppTab) {
         guard selected.count < 5, !selected.contains(tab) else { return }
         store.setTabs(selected + [tab])
+    }
+}
+
+
+@MainActor
+struct BackupRestoreView: View {
+    @ObservedObject var store: AuroraStore
+    @State private var text = ""
+
+    var body: some View {
+        Form {
+            Section {
+                TextEditor(text: $text)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 220)
+            } header: {
+                Text("Backup JSON")
+            } footer: {
+                Text("Paste an Aurora backup exported from this or another device.")
+            }
+
+            Button("Restore Backup") {
+                _ = store.importBackup(text)
+            }
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .navigationTitle("Restore Backup")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
