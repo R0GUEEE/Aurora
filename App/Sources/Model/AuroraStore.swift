@@ -637,6 +637,26 @@ final class AuroraStore: ObservableObject {
         refreshQueueAnalysis()
     }
 
+    func recordCompletedTransaction(_ plan: TransactionPlan) {
+        var activities: [PackageActivity] = []
+        activities += plan.installed.map { PackageActivity(package: $0.name, version: $0.version.raw, kind: .install) }
+        activities += plan.reinstalled.map { PackageActivity(package: $0.name, version: $0.version.raw, kind: .reinstall) }
+        activities += plan.upgraded.map { PackageActivity(package: $0.name, version: $0.version.raw, kind: .upgrade) }
+        activities += plan.downgraded.map { PackageActivity(package: $0.name, version: $0.version.raw, kind: .downgrade) }
+        activities += plan.removed.map {
+            PackageActivity(
+                package: $0.package.name,
+                version: $0.package.version.raw,
+                kind: $0.purge ? .purge : .remove
+            )
+        }
+        userLibrary.history.insert(contentsOf: activities, at: 0)
+        if userLibrary.history.count > 500 {
+            userLibrary.history = Array(userLibrary.history.prefix(500))
+        }
+        persistUserLibrary()
+    }
+
     func stagedAction(for name: String) -> PackageAction? {
         queue.action(for: name)
     }
