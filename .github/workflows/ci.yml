@@ -62,22 +62,28 @@ jobs:
           .build/debug/aurora help | head -5
           .build/debug/aurora deb Tests/AuroraCoreTests/Fixtures/packages/aurora-fixture_1.2.3-1_iphoneos-arm64.deb
 
+      - name: Install dpkg (fixture tooling and the ordering oracle)
+        run: |
+          # Both checks below are no-ops without the real tools: they rebuild the
+          # fixtures with dpkg-deb and re-derive the version-ordering vectors by
+          # asking dpkg itself. Homebrew's dpkg is the Debian implementation, so
+          # the oracle is independent of AuroraCore's own code.
+          if ! command -v dpkg-deb >/dev/null 2>&1; then
+            brew install dpkg
+          fi
+          dpkg --version | head -1
+
       - name: Regenerate fixtures and check they are unchanged
         run: |
           set -euo pipefail
-          if command -v dpkg-deb >/dev/null 2>&1; then
-            cp -R Tests/AuroraCoreTests/Fixtures /tmp/fixtures-before
-            python3 Tools/make_fixtures.py >/dev/null
-            diff -r /tmp/fixtures-before Tests/AuroraCoreTests/Fixtures && echo "fixtures are reproducible"
-          else
-            echo "::notice::dpkg-deb is unavailable, skipping the fixture reproducibility check"
-          fi
+          command -v dpkg-deb >/dev/null 2>&1 || { echo "::error::dpkg-deb is missing"; exit 1; }
+          cp -R Tests/AuroraCoreTests/Fixtures /tmp/fixtures-before
+          python3 Tools/make_fixtures.py >/dev/null
+          diff -r /tmp/fixtures-before Tests/AuroraCoreTests/Fixtures
+          echo "fixtures are reproducible
 
       - name: Verify the version oracle still agrees with dpkg
         run: |
           set -euo pipefail
-          if command -v dpkg >/dev/null 2>&1; then
-            python3 Tools/fuzz_version_order.py
-          else
-            echo "::notice::dpkg is unavailable, skipping the oracle check"
-          fi
+          command -v dpkg >/dev/null 2>&1 || { echo "::error::dpkg is missing"; exit 1; }
+          python3 Tools/fuzz_version_order.py

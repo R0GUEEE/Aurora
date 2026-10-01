@@ -1,0 +1,26 @@
+Package: com.r0gueee.aurora
+Name: Aurora
+Version: @VERSION@
+Architecture: @ARCH@
+Section: Packaging
+Priority: optional
+Maintainer: r0gueee <r0gueee@users.noreply.github.com>
+Depends: firmware (>= 12.0)
+Recommends: mobilesubstrate (>= 0.9.5000)
+Description: A modern package manager for jailbroken iOS
+ Aurora is a Sileo successor: it reads Debian repositories directly, resolves
+ dependencies itself, and stages every change in a reviewable queue before
+ touching the system.
+ .
+ Highlights:
+  * flat and dists repositories, rootless and rootful layouts
+  * a real dependency resolver, not a dpkg frontend
+  * a staged change queue with required/conflicting/suggested sections
+  * a step-by-step transaction log you can cancel
+ .
+ mobilesubstrate is recommended, not required: a package manager must be able to
+ install, remove and upgrade packages on a jailbreak that does not use
+ substrate (ElleKit, libhooker, or no hooking library at all).
+Depiction: https://REPLACE-ME.example.com/aurora/depiction/
+SileoDepiction: https://REPLACE-ME.example.com/aurora/sileo-depiction.json
+Homepage: https://REPLACE-ME.example.com/aurora/

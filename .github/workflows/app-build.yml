@@ -1,0 +1,183 @@
+name: App Build
+
+# Builds the SwiftUI app and packages it as a jailbreak .deb.
+#
+# Two jobs on purpose: `build` produces the .app once (Xcode builds are the slow
+# part), then the matrix job packages it twice — rootless and rootful — which is
+# the only thing that actually differs between the two artifacts. Packaging
+# needs `checkout` again for Packaging/build-deb.sh and App/Aurora.entitlements.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'App/**'
+      - 'Sources/**'
+      - 'Packaging/**'
+      - 'Package.swift'
+      - '.github/workflows/app-build.yml'
+  pull_request:
+    paths:
+      - 'App/**'
+      - 'Sources/**'
+      - 'Packaging/**'
+      - 'Package.swift'
+      - '.github/workflows/app-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_BUNDLE_NAME: Aurora.app
+  SCHEME: Aurora
+  # Deterministic derived data path so the bundle can be found without a
+  # `xcodebuild -showBuildSettings` round trip.
+  DERIVED_DATA: build
+  APP_BUNDLE_PATH: build/Build/Products/Release-iphoneos/Aurora.app
+
+jobs:
+  build:
+    name: Build Aurora.app (unsigned)
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tooling
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          brew install ldid dpkg
+          xcodegen --version
+          ldid -v | head -n 1 || true
+          dpkg-deb --version
+
+      - name: Warm up SwiftPM (resolve + build the core library)
+        run: |
+          set -euo pipefail
+          swift build
+
+      - name: Generate the Xcode project
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec App/project.yml --project App
+
+      - name: Build the app bundle
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project App/Aurora.xcodeproj \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Verify the app bundle exists
+        run: |
+          set -euo pipefail
+          test -d "$APP_BUNDLE_PATH" || { echo "::error::$APP_BUNDLE_PATH was not produced"; exit 1; }
+          test -x "$APP_BUNDLE_PATH/Aurora" || { echo "::error::$APP_BUNDLE_PATH/Aurora is missing or not executable"; exit 1; }
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_BUNDLE_PATH/Info.plist"
+
+      - name: Upload the app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-app
+          path: ${{ env.APP_BUNDLE_PATH }}
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    name: Package .deb (${{ matrix.layout }})
+    needs: build
+    runs-on: macos-14
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        layout:
+          - rootless
+          - rootful
+    steps:
+      - name: Checkout (for Packaging/ and App/Aurora.entitlements)
+        uses: actions/checkout@v4
+
+      - name: Install packaging tooling
+        run: |
+          set -euo pipefail
+          brew install ldid dpkg
+          dpkg-deb --version
+
+      - name: Download the app bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: aurora-app
+          path: app
+
+      - name: Restore file modes
+        # upload-artifact/download-artifact does not guarantee that the
+        # executable bit survives the round trip, and build-deb.sh refuses a
+        # bundle whose main binary is not executable.
+        run: |
+          set -euo pipefail
+          APP_PATH="$PWD/app/$APP_BUNDLE_NAME"
+          test -d "$APP_PATH" || { echo "::error::no app bundle at $APP_PATH"; exit 1; }
+          find "$APP_PATH" -type d -exec chmod 0755 {} +
+          chmod 0755 "$APP_PATH/Aurora"
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
+      - name: Print the package layout
+        run: |
+          set -euo pipefail
+          Packaging/build-deb.sh --${{ matrix.layout }} --print-layout
+
+      - name: Build the .deb
+        run: |
+          set -euo pipefail
+          Packaging/build-deb.sh --${{ matrix.layout }} --output dist
+
+      - name: Assert the .deb contains Applications/Aurora.app/Aurora
+        run: |
+          set -euo pipefail
+          deb=$(find dist -maxdepth 1 -name 'aurora_*.deb' -print | head -n 1)
+          if [ -z "$deb" ]; then
+            echo "::error::no .deb was produced in dist/"
+            exit 1
+          fi
+          echo "inspecting $deb"
+          dpkg-deb -I "$deb"
+          dpkg-deb -c "$deb"
+
+          # The main binary must be at Applications/Aurora.app/Aurora (under
+          # var/jb for the rootless package). Without it the package installs an
+          # app that cannot launch, which is exactly the failure this workflow
+          # exists to catch.
+          if ! dpkg-deb -c "$deb" | grep -E 'Applications/Aurora\.app/Aurora$'; then
+            echo "::error::$deb does not contain Applications/Aurora.app/Aurora"
+            exit 1
+          fi
+
+          expected_arch=$([ "${{ matrix.layout }}" = "rootless" ] && echo iphoneos-arm64 || echo iphoneos-arm)
+          actual_arch=$(dpkg-deb -f "$deb" Architecture)
+          if [ "$actual_arch" != "$expected_arch" ]; then
+            echo "::error::$deb declares Architecture: $actual_arch, expected $expected_arch"
+            exit 1
+          fi
+          echo "OK: $deb ($actual_arch)"
+
+      - name: Upload the .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-deb-${{ matrix.layout }}
+          path: dist/*.deb
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Aurora.entitlements — the entitlements a package manager needs to be a package
+  manager.
+
+  These are *platform* entitlements: Apple's signing infrastructure will never
+  grant them, which is why the app is shipped unsigned in a .deb and signed on
+  device by `ldid -SAurora.entitlements` (see Packaging/build-deb.sh). A normal
+  Xcode-signed build of this app ignores the file (CODE_SIGNING_ALLOWED=NO in
+  App/project.yml).
+
+  Every key below is required; removing any one of them either makes the app fail
+  to launch or makes it silently unable to touch the filesystem it manages.
+-->
+<plist version="1.0">
+<dict>
+	<!--
+	  platform-application
+	  Marks the binary as a platform binary. Without it amfid refuses to execute
+	  a binary carrying the sandbox-bypass entitlements below, and the app dies at
+	  launch with a code-signing error. Together with the next two keys this is
+	  what lets the app run from /var/jb/Applications rather than from a
+	  user-installed container.
+	-->
+	<key>platform-application</key>
+	<true/>
+
+	<!--
+	  com.apple.private.security.no-container
+	  Runs the process outside the App Sandbox data container. dpkg writes to
+	  /var/lib/dpkg, /Applications, /usr and (rootless) /var/jb/**; a sandboxed
+	  process cannot see any of those. This is the entitlement that makes the
+	  process unsandboxed.
+	-->
+	<key>com.apple.private.security.no-container</key>
+	<true/>
+
+	<!--
+	  com.apple.private.security.container-required = false
+	  The counterpart of the key above: it tells launchd that the process must NOT
+	  be given a container. Setting `no-container` without this makes the launch
+	  fail on some iOS versions, because the container is requested by default for
+	  application bundles.
+	-->
+	<key>com.apple.private.security.container-required</key>
+	<false/>
+
+	<!--
+	  com.apple.private.security.storage.AppDataContainers
+	  Read/write access to the *other* apps' data containers (e.g.
+	  /var/mobile/Containers/Data/Application/<uuid>). Two features need it:
+	  reading another app's installed-package metadata, and letting dpkg place
+	  files inside a package's container when a new package starts using it.
+	  Removing it does not break installation, but it does break uninstall of
+	  packages that own container files.
+	-->
+	<key>com.apple.private.security.storage.AppDataContainers</key>
+	<true/>
+
+	<!--
+	  get-task-allow
+	  Required for the Debug configuration so a debugger (or lldb over the
+	  network, which is how you debug on device) can attach to a non-App-Store
+	  binary. Harmless in Release; kept because the .deb produced from a Debug
+	  build is what a developer installs while working on Aurora itself.
+	-->
+	<key>get-task-allow</key>
+	<true/>
+
+	<!--
+	  task_for_pid-allow
+	  Aurora runs dpkg, and dpkg runs maintainer scripts that may spawn helpers.
+	  Being able to inspect/attach those child processes is what makes a failed
+	  maintainer script debuggable from inside the app instead of only through a
+	  terminal. Optional at runtime; include it only if you need that.
+	-->
+	<key>task_for_pid-allow</key>
+	<true/>
+
+	<!--
+	  run-unsigned-code
+	  Maintainer scripts and the `dpkg` helper binaries are not signed by Apple.
+	  Without this, exec'ing them is refused by the kernel on some jailbreaks.
+	  This is also what makes `ldid -S` on those helpers unnecessary.
+	-->
+	<key>run-unsigned-code</key>
+	<true/>
+
+	<!--
+	  com.apple.private.security.storage.var
+	  Needed on rootless jailbreaks, where the DPkg database lives at
+	  /var/jb/var/lib/dpkg and the download cache under
+	  /var/mobile/Library/Caches: both are outside the app's own data directory.
+	-->
+	<key>com.apple.private.security.storage.var</key>
+	<true/>
+</dict>
+</plist>

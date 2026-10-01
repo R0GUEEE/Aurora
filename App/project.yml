@@ -1,0 +1,107 @@
+# XcodeGen spec for the Aurora iOS app.
+#
+# The app is a thin SwiftUI shell over the local SwiftPM package that lives at
+# the repository root (`../Package.swift`, library product `AuroraCore`). No
+# third-party package is declared here: `AuroraCore` is the only dependency.
+#
+# Generate the project and build it (unsigned) exactly the way CI does:
+#
+#   xcodegen generate --spec App/project.yml --project App
+#   xcodebuild -project App/Aurora.xcodeproj -scheme Aurora \
+#              -configuration Release -sdk iphoneos \
+#              -derivedDataPath build \
+#              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+#              build
+#
+# Signing is deliberately switched off: the .app is signed later, on the
+# packaged bundle, by `Packaging/build-deb.sh` (`ldid -S<entitlements>`), because
+# the entitlements a jailbroken app needs cannot be granted by a normal Apple
+# signing identity.
+name: Aurora
+
+options:
+  bundleIdPrefix: com.r0gueee
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+  groupSortPosition: top
+  # Be explicit about the Xcode format so CI (Xcode 15 on macos-14) and a local
+  # Xcode do not disagree about the project file.
+  xcodeVersion: "15.0"
+
+packages:
+  # The repository root. `App/project.yml` -> `..` -> repo root, which is where
+  # Package.swift declares `AuroraCore`.
+  Aurora:
+    path: ..
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    # The app is written for Swift 5 concurrency as it is understood by Swift
+    # 5.9: complete checking is not enabled, so `@MainActor` isolation mistakes
+    # cannot happen but a warning does not fail the build either.
+    SWIFT_STRICT_CONCURRENCY: minimal
+    ALWAYS_SEARCH_USER_PATHS: NO
+    CLANG_ENABLE_MODULES: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # Unsigned builds, on purpose (see the header).
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGN_IDENTITY: ""
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  Aurora:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      # Only the Swift sources. `Resources/Info.plist` is consumed through
+      # INFOPLIST_FILE and `Aurora.entitlements` through CODE_SIGN_ENTITLEMENTS,
+      # so neither is added to a build phase (adding the plist to Copy Bundle
+      # Resources would ship it twice and confuse Xcode's plist handling).
+      - path: Sources
+    dependencies:
+      - package: Aurora
+        product: AuroraCore
+    settings:
+      base:
+        PRODUCT_NAME: Aurora
+        PRODUCT_BUNDLE_IDENTIFIER: com.r0gueee.aurora
+        INFOPLIST_FILE: Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Aurora.entitlements
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # No asset catalog ships in this repository yet; an empty icon name keeps
+        # the build from looking for an `AppIcon` set that does not exist.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"
+        SWIFT_EMIT_LOC_STRINGS: NO
+        ENABLE_ONLY_ACTIVE_ARCH: NO
+        # Rootless/rootful is a packaging decision, not a build one: the same
+        # binary runs in both layouts because every path it touches is resolved
+        # through `JailbreakEnvironment`.
+        OTHER_SWIFT_FLAGS: "$(inherited)"
+
+schemes:
+  Aurora:
+    build:
+      targets:
+        Aurora: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
