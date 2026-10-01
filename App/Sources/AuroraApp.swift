@@ -24,6 +24,7 @@ struct RootView: View {
     @ObservedObject var store: AuroraStore
     @State private var selection: AppTab = .browse
     @State private var isImportingDeb = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         TabView(selection: $selection) {
@@ -42,6 +43,10 @@ struct RootView: View {
             if !store.settings.tabs.contains(selection), let first = store.settings.tabs.first {
                 selection = first
             }
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            Task { await store.refreshIfStale() }
         }
         .onChange(of: store.settings.tabs) { tabs in
             if !tabs.contains(selection), let first = tabs.first {
