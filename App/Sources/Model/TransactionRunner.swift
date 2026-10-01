@@ -159,6 +159,13 @@ final class TransactionRunner: ObservableObject, Identifiable {
             status = "Configuring \(package)"
             begin(kind: .configure, package: package)
 
+        case .dpkgProgress(let package, let phase, _):
+            if let package {
+                status = "\(phase.capitalized) \(package)"
+            } else {
+                status = phase
+            }
+
         case .output(let text):
             append(log: text)
 
