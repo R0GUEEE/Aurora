@@ -98,6 +98,9 @@ struct AuroraSettings: Codable, Equatable {
     var compactPackageRows: Bool
     var showPackageDescriptions: Bool
     var skipFailedRepositories: Bool
+    var refreshConcurrency: Int
+    var newPackageDays: Int
+    var homePackageLimit: Int
     var tabs: [AppTab]
 
     init(
@@ -110,6 +113,9 @@ struct AuroraSettings: Codable, Equatable {
         compactPackageRows: Bool = false,
         showPackageDescriptions: Bool = true,
         skipFailedRepositories: Bool = true,
+        refreshConcurrency: Int = 8,
+        newPackageDays: Int = 14,
+        homePackageLimit: Int = 8,
         tabs: [AppTab] = AppTab.defaultTabs
     ) {
         self.autoRefreshOnLaunch = autoRefreshOnLaunch
@@ -121,6 +127,9 @@ struct AuroraSettings: Codable, Equatable {
         self.compactPackageRows = compactPackageRows
         self.showPackageDescriptions = showPackageDescriptions
         self.skipFailedRepositories = skipFailedRepositories
+        self.refreshConcurrency = min(12, max(2, refreshConcurrency))
+        self.newPackageDays = min(90, max(1, newPackageDays))
+        self.homePackageLimit = min(20, max(3, homePackageLimit))
         self.tabs = Self.sanitizedTabs(tabs)
     }
 
@@ -134,6 +143,9 @@ struct AuroraSettings: Codable, Equatable {
         case compactPackageRows
         case showPackageDescriptions
         case skipFailedRepositories
+        case refreshConcurrency
+        case newPackageDays
+        case homePackageLimit
         case tabs
     }
 
@@ -153,6 +165,9 @@ struct AuroraSettings: Codable, Equatable {
         self.compactPackageRows = (try? container.decode(Bool.self, forKey: .compactPackageRows)) ?? false
         self.showPackageDescriptions = (try? container.decode(Bool.self, forKey: .showPackageDescriptions)) ?? true
         self.skipFailedRepositories = (try? container.decode(Bool.self, forKey: .skipFailedRepositories)) ?? true
+        self.refreshConcurrency = min(12, max(2, (try? container.decode(Int.self, forKey: .refreshConcurrency)) ?? 8))
+        self.newPackageDays = min(90, max(1, (try? container.decode(Int.self, forKey: .newPackageDays)) ?? 14))
+        self.homePackageLimit = min(20, max(3, (try? container.decode(Int.self, forKey: .homePackageLimit)) ?? 8))
         let decodedTabs = (try? container.decode([AppTab].self, forKey: .tabs)) ?? AppTab.defaultTabs
         self.tabs = Self.sanitizedTabs(decodedTabs)
     }
