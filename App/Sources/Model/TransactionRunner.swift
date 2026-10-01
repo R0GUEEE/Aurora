@@ -111,7 +111,18 @@ final class TransactionRunner: ObservableObject, Identifiable {
         task = Task { @MainActor [weak self] in
             guard let self = self else { return }
             do {
-                let report = try await engine.execute(plan, sources: sources, progress: handler)
+                var localPaths: [String: String] = [:]
+                for record in plan.unpackSteps where LocalPackageLoader.isLocalRecord(record) {
+                    if let path = record.filename {
+                        localPaths[InstallEngine.archiveKey(for: record)] = path
+                    }
+                }
+                let report = try await engine.execute(
+                    plan,
+                    sources: sources,
+                    localPaths: localPaths,
+                    progress: handler
+                )
                 self.finish(with: report)
             } catch {
                 self.fail(AuroraFormat.message(for: error))
