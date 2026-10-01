@@ -95,7 +95,7 @@ struct SettingsView: View {
                 get: { store.settings.skipFailedRepositories },
                 set: { store.setSkipFailedRepositories($0) }
             ))
-            Toggle("Allow unsigned repositories", isOn: Binding(
+            Toggle("Allow unsigned / untrusted repositories", isOn: Binding(
                 get: { store.settings.ignoreSignatureFailures },
                 set: { store.setIgnoreSignatureFailures($0) }
             ))
@@ -112,7 +112,7 @@ struct SettingsView: View {
         } header: {
             Text("Repositories")
         } footer: {
-            Text("Failed-repository skipping keeps dead sources out of normal bulk refreshes; Retry Failed and per-repository refresh still test them. A rejected signature always stops refresh; this option permits unsigned metadata for legacy jailbreak repositories. Packages without a SHA-256/512 digest cannot be installed unless you explicitly allow them. Package downloads must stay on the repository's origin. Rootful packages use legacy root filesystem paths and are not automatically converted by Aurora.")
+            Text("Failed-repository skipping keeps dead sources out of normal bulk refreshes; Retry Failed and per-repository refresh still test them. Compatibility mode permits unsigned metadata, unavailable verification, and repositories signed by keys that are not in the device trust store. A cryptographically invalid or malformed signature still stops refresh. Packages without a SHA-256/512 digest cannot be installed unless you explicitly allow them. Package downloads must stay on the repository's origin. Rootful packages use legacy root filesystem paths and are not automatically converted by Aurora.")
         }
     }
 
