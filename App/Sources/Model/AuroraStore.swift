@@ -113,6 +113,7 @@ final class AuroraStore: ObservableObject {
     @Published private(set) var sections: [PackageSection] = []
     @Published private(set) var sectionNames: [String] = []
     @Published private(set) var architectureNames: [String] = []
+    @Published private(set) var collectionNames: [String] = []
     @Published private(set) var cachedCacheSizeBytes: Int = 0
 
     @Published private(set) var installed = InstalledPackageDatabase()
@@ -165,6 +166,10 @@ final class AuroraStore: ObservableObject {
         let loadedSettings = settingsStore.load()
         self.settings = loadedSettings.settings
         self.settingsPersistenceError = loadedSettings.failure
+
+        self.collectionNames = self.userLibrary.collections.keys.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
 
         let loadedPolicy = policyStore.load()
         self.packagePolicy = loadedPolicy.policy
@@ -626,6 +631,7 @@ final class AuroraStore: ObservableObject {
         sources = backup.sources
         settings = backup.settings
         userLibrary = backup.library
+        refreshCollectionNames()
         packagePolicy = backup.policy
         // Runtime repository state belongs to the pre-restore source set. Never
         // merge stale indexes/errors/signatures into a restored configuration,
@@ -1258,12 +1264,6 @@ final class AuroraStore: ObservableObject {
         persistUserLibrary()
     }
 
-    var collectionNames: [String] {
-        userLibrary.collections.keys.sorted {
-            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
-        }
-    }
-
     func packageNames(inCollection name: String) -> [String] {
         Array(userLibrary.collections[name] ?? []).sorted {
             $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
@@ -1283,12 +1283,14 @@ final class AuroraStore: ObservableObject {
             $0.caseInsensitiveCompare(name) == .orderedSame
         }) else { return "A collection named “\(name)” already exists." }
         userLibrary.collections[name] = []
+        refreshCollectionNames()
         persistUserLibrary()
         return nil
     }
 
     func deleteCollection(named name: String) {
         userLibrary.collections[name] = nil
+        refreshCollectionNames()
         persistUserLibrary()
     }
 
@@ -1406,6 +1408,12 @@ final class AuroraStore: ObservableObject {
             policyPersistenceError = nil
         } catch {
             policyPersistenceError = "Package policy could not be saved (\(AuroraFormat.message(for: error)))."
+        }
+    }
+
+    private func refreshCollectionNames() {
+        collectionNames = userLibrary.collections.keys.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
         }
     }
 

@@ -16,7 +16,11 @@ struct InstalledView: View {
     }
 
     var body: some View {
-        List {
+        let visibleUpdates = updates
+        let visibleHeldPackages = heldPackages
+        let visibleOrphans = orphans
+
+        return List {
             Picker("View", selection: $scope) {
                 ForEach(Scope.allCases) { Text($0.rawValue).tag($0) }
             }
@@ -24,9 +28,9 @@ struct InstalledView: View {
             .listRowBackground(Color.clear)
 
             switch scope {
-            case .updates: updatesSection
+            case .updates: updatesSection(visibleUpdates)
             case .installed: installedSection
-            case .orphaned: orphanedSection
+            case .orphaned: orphanedSection(visibleOrphans)
             case .broken: brokenSection
             }
         }
@@ -39,23 +43,23 @@ struct InstalledView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    if !updates.isEmpty {
+                    if !visibleUpdates.isEmpty {
                         Button {
-                            for record in updates { store.stage(.upgrade(record)) }
+                            for record in visibleUpdates { store.stage(.upgrade(record)) }
                         } label: {
                             Label("Upgrade All", systemImage: "arrow.up.circle")
                         }
                     }
-                    if !heldPackages.isEmpty {
+                    if !visibleHeldPackages.isEmpty {
                         Button {
-                            for package in heldPackages { store.setHeld(package.name, held: false) }
+                            for package in visibleHeldPackages { store.setHeld(package.name, held: false) }
                         } label: {
                             Label("Unhold All", systemImage: "pin.slash")
                         }
                     }
-                    if !orphans.isEmpty {
+                    if !visibleOrphans.isEmpty {
                         Button(role: .destructive) {
-                            for package in orphans { store.stage(.remove(name: package.name, purge: false)) }
+                            for package in visibleOrphans { store.stage(.remove(name: package.name, purge: false)) }
                         } label: {
                             Label("Remove All Orphans", systemImage: "trash")
                         }
@@ -82,7 +86,7 @@ struct InstalledView: View {
         return store.installed.present.filter { names.contains($0.name) }
     }
 
-    @ViewBuilder private var updatesSection: some View {
+    @ViewBuilder private func updatesSection(_ updates: [PackageRecord]) -> some View {
         let records = filtered(updates)
         Section {
             if updates.isEmpty {
@@ -146,7 +150,7 @@ struct InstalledView: View {
         } header: { Text("\(packages.count) installed") }
     }
 
-    @ViewBuilder private var orphanedSection: some View {
+    @ViewBuilder private func orphanedSection(_ orphans: [InstalledPackage]) -> some View {
         let packages = orphans.filter(matches)
         Section {
             if packages.isEmpty {

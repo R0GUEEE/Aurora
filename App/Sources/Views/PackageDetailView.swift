@@ -14,6 +14,7 @@ struct PackageDetailView: View {
     @State private var isChoosingVersion = false
     @State private var depictionTarget: DepictionTarget?
     @State private var showingRawMetadata = false
+    @State private var isChoosingCollections = false
 
     var body: some View {
         List {
@@ -51,15 +52,8 @@ struct PackageDetailView: View {
                     }
                     if !store.collectionNames.isEmpty {
                         Divider()
-                        Menu {
-                            ForEach(store.collectionNames, id: \.self) { collection in
-                                let included = store.isInCollection(record.name, collection: collection)
-                                Button {
-                                    store.setPackage(record.name, inCollection: collection, included: !included)
-                                } label: {
-                                    Label(collection, systemImage: included ? "checkmark.circle.fill" : "circle")
-                                }
-                            }
+                        Button {
+                            isChoosingCollections = true
                         } label: {
                             Label("Collections", systemImage: "folder")
                         }
@@ -83,6 +77,35 @@ struct PackageDetailView: View {
         }
         .sheet(item: $depictionTarget) { target in
             DepictionScreen(title: target.title, url: target.url)
+        }
+        .sheet(isPresented: $isChoosingCollections) {
+            NavigationStack {
+                List {
+                    ForEach(store.collectionNames, id: \.self) { collection in
+                        let included = store.isInCollection(record.name, collection: collection)
+                        Button {
+                            store.setPackage(record.name, inCollection: collection, included: !included)
+                        } label: {
+                            HStack {
+                                Text(collection)
+                                Spacer()
+                                if included {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                        }
+                        .foregroundColor(.primary)
+                    }
+                }
+                .navigationTitle("Collections")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { isChoosingCollections = false }
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showingRawMetadata) {
             NavigationStack {

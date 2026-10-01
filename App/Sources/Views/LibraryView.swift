@@ -71,7 +71,8 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        List {
+        let exportPayload = exportText
+        return List {
             Picker("Library", selection: $selection) {
                 ForEach(LibraryScope.allCases) { Text($0.rawValue).tag($0) }
             }
@@ -107,10 +108,10 @@ struct LibraryView: View {
                         }
                     }
 
-                    ShareLink(item: exportText, subject: Text("Aurora \(selection.rawValue)")) {
+                    ShareLink(item: exportPayload, subject: Text("Aurora \(selection.rawValue)")) {
                         Label("Share \(selection.rawValue)", systemImage: "square.and.arrow.up")
                     }
-                    .disabled(exportText.isEmpty)
+                    .disabled(exportPayload.isEmpty)
 
                     if selection == .bookmarks {
                         Button {
