@@ -363,6 +363,7 @@ final class AuroraStore: ObservableObject {
         indexErrors[id] = nil
         indexWarnings[id] = nil
         sources[position].lastError = nil
+        sources[position].consecutiveFailures = 0
         persistSources()
     }
 
@@ -373,6 +374,7 @@ final class AuroraStore: ObservableObject {
         indexWarnings[id] = nil
         signatureStatus[id] = nil
         sources[position].lastError = nil
+        sources[position].consecutiveFailures = 0
         sources[position].lastRefreshed = nil
         persistSources()
         rebuildIndexes()
@@ -382,6 +384,11 @@ final class AuroraStore: ObservableObject {
     func setSourceEnabled(id: UUID, enabled: Bool) {
         guard let position = sources.firstIndex(where: { $0.id == id }) else { return }
         sources[position].isEnabled = enabled
+        if enabled {
+            // Manual enable is an explicit recovery action; do not immediately
+            // quarantine the source again using stale circuit-breaker history.
+            sources[position].consecutiveFailures = 0
+        }
         persistSources()
         rebuildIndexes()
     }
