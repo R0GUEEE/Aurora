@@ -96,6 +96,19 @@ struct TransactionProgressView: View {
                     }
                 }
 
+                if runner.isFinished && !runner.succeeded && store.canInstall {
+                    Section("Recovery") {
+                        Button {
+                            Task { await store.repairPendingConfiguration() }
+                        } label: {
+                            Label("Finish Pending dpkg Configuration", systemImage: "wrench.and.screwdriver")
+                        }
+                        Text("Runs dpkg --configure -a to finish packages left unpacked by an interrupted or failed transaction.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 Section {
                     DisclosureGroup("dpkg output", isExpanded: $isShowingLog) {
                         logView
