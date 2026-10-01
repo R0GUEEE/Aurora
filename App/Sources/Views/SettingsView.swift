@@ -129,6 +129,15 @@ struct SettingsView: View {
                 get: { store.settings.autoRefreshOnLaunch },
                 set: { store.setAutoRefreshOnLaunch($0) }
             ))
+            Toggle("Refresh stale repositories on foreground", isOn: Binding(
+                get: { store.settings.refreshOnForeground },
+                set: { store.setRefreshOnForeground($0) }
+            ))
+            Stepper("Foreground refresh interval: \(store.settings.foregroundRefreshIntervalMinutes) min", value: Binding(
+                get: { store.settings.foregroundRefreshIntervalMinutes },
+                set: { store.setForegroundRefreshIntervalMinutes($0) }
+            ), in: 5...1440, step: 5)
+            .disabled(!store.settings.refreshOnForeground)
             Stepper("Refresh concurrency: \(store.settings.refreshConcurrency)", value: Binding(
                 get: { store.settings.refreshConcurrency },
                 set: { store.setRefreshConcurrency($0) }
