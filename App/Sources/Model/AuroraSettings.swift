@@ -35,6 +35,7 @@ enum DepictionPreference: String, CaseIterable, Codable, Identifiable {
 
 enum AppTab: String, CaseIterable, Codable, Identifiable {
     case browse
+    case home
     case newPackages
     case installed
     case library
@@ -48,6 +49,7 @@ enum AppTab: String, CaseIterable, Codable, Identifiable {
     var label: String {
         switch self {
         case .browse: return "Browse"
+        case .home: return "Home"
         case .newPackages: return "New"
         case .installed: return "Installed"
         case .library: return "Library"
@@ -61,6 +63,7 @@ enum AppTab: String, CaseIterable, Codable, Identifiable {
     var symbol: String {
         switch self {
         case .browse: return "square.grid.2x2"
+        case .home: return "house"
         case .newPackages: return "sparkles"
         case .installed: return "shippingbox"
         case .library: return "bookmark"
@@ -71,7 +74,7 @@ enum AppTab: String, CaseIterable, Codable, Identifiable {
         }
     }
 
-    static let defaultTabs: [AppTab] = [.browse, .installed, .sources, .queue, .settings]
+    static let defaultTabs: [AppTab] = [.home, .installed, .sources, .queue, .settings]
 }
 
 /// Everything the Settings screen can change.
