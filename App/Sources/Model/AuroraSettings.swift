@@ -111,6 +111,10 @@ struct AuroraSettings: Codable, Equatable {
     var showRepositoryWarnings: Bool
     var confirmQueueBeforeInstall: Bool
     var refreshAfterTransaction: Bool
+    /// Refresh stale repositories when Aurora returns to the foreground.
+    var refreshOnForeground: Bool
+    /// Minimum age before a foreground transition is allowed to refresh again.
+    var foregroundRefreshIntervalMinutes: Int
     var newPackageDays: Int
     var homePackageLimit: Int
     var tabs: [AppTab]
@@ -138,6 +142,8 @@ struct AuroraSettings: Codable, Equatable {
         showRepositoryWarnings: Bool = true,
         confirmQueueBeforeInstall: Bool = true,
         refreshAfterTransaction: Bool = true,
+        refreshOnForeground: Bool = true,
+        foregroundRefreshIntervalMinutes: Int = 30,
         newPackageDays: Int = 14,
         homePackageLimit: Int = 8,
         tabs: [AppTab] = AppTab.defaultTabs
@@ -164,6 +170,8 @@ struct AuroraSettings: Codable, Equatable {
         self.showRepositoryWarnings = showRepositoryWarnings
         self.confirmQueueBeforeInstall = confirmQueueBeforeInstall
         self.refreshAfterTransaction = refreshAfterTransaction
+        self.refreshOnForeground = refreshOnForeground
+        self.foregroundRefreshIntervalMinutes = min(1440, max(5, foregroundRefreshIntervalMinutes))
         self.newPackageDays = min(90, max(1, newPackageDays))
         self.homePackageLimit = min(20, max(3, homePackageLimit))
         self.tabs = Self.sanitizedTabs(tabs)
@@ -192,6 +200,8 @@ struct AuroraSettings: Codable, Equatable {
         case showRepositoryWarnings
         case confirmQueueBeforeInstall
         case refreshAfterTransaction
+        case refreshOnForeground
+        case foregroundRefreshIntervalMinutes
         case newPackageDays
         case homePackageLimit
         case tabs
@@ -226,6 +236,8 @@ struct AuroraSettings: Codable, Equatable {
         self.showRepositoryWarnings = (try? container.decode(Bool.self, forKey: .showRepositoryWarnings)) ?? true
         self.confirmQueueBeforeInstall = (try? container.decode(Bool.self, forKey: .confirmQueueBeforeInstall)) ?? true
         self.refreshAfterTransaction = (try? container.decode(Bool.self, forKey: .refreshAfterTransaction)) ?? true
+        self.refreshOnForeground = (try? container.decode(Bool.self, forKey: .refreshOnForeground)) ?? true
+        self.foregroundRefreshIntervalMinutes = min(1440, max(5, (try? container.decode(Int.self, forKey: .foregroundRefreshIntervalMinutes)) ?? 30))
         self.newPackageDays = min(90, max(1, (try? container.decode(Int.self, forKey: .newPackageDays)) ?? 14))
         self.homePackageLimit = min(20, max(3, (try? container.decode(Int.self, forKey: .homePackageLimit)) ?? 8))
         let decodedTabs = (try? container.decode([AppTab].self, forKey: .tabs)) ?? AppTab.defaultTabs
