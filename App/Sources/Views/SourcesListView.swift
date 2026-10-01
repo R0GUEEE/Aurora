@@ -606,7 +606,7 @@ struct AddSourceSheet: View {
                 } header: {
                     Text("Repository")
                 } footer: {
-                    Text("Enter the repository URL. Aurora treats normal jailbreak repositories as flat and automatically handles known distribution repositories such as Procursus.")
+                    Text("Paste a repository URL, bare host, direct Packages/Release link, or Sileo/Zebra add-source link. Aurora normalizes it automatically and detects distribution paths when present.")
                 }
 
                 if let errorMessage = errorMessage {
