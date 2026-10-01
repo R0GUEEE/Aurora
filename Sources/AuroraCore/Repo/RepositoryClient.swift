@@ -10,6 +10,7 @@ public enum RepositoryError: Error, CustomStringConvertible {
     case decompression(path: String, underlying: Error)
     case indexTooLarge(path: String, bytes: Int)
     case packageNotInSource(String)
+    case refreshTimedOut(source: String, seconds: Int)
 
     public var description: String {
         switch self {
@@ -30,6 +31,8 @@ public enum RepositoryError: Error, CustomStringConvertible {
             return "\(path) expands to \(bytes / (1 << 20)) MB, which is beyond the safety limit"
         case .packageNotInSource(let name):
             return "\(name) has no download location in this repository"
+        case .refreshTimedOut(let source, let seconds):
+            return "\(source) did not finish refreshing within \(seconds) seconds"
         }
     }
 }
@@ -46,17 +49,23 @@ public struct RepositoryPolicy: Sendable {
     /// Refuse an index that decompresses beyond this.
     public var maximumIndexBytes: Int
     public var useCache: Bool
+    /// Hard wall-clock deadline for one complete repository refresh. This is
+    /// separate from the per-request transport timeout so a broken source cannot
+    /// consume the worker indefinitely while Aurora probes metadata/index paths.
+    public var maximumRefreshSeconds: Int
 
     public init(
         requireSignature: Bool = false,
         allowFlatUnsigned: Bool = true,
         maximumIndexBytes: Int = 256 * (1 << 20),
-        useCache: Bool = true
+        useCache: Bool = true,
+        maximumRefreshSeconds: Int = 45
     ) {
         self.requireSignature = requireSignature
         self.allowFlatUnsigned = allowFlatUnsigned
         self.maximumIndexBytes = maximumIndexBytes
         self.useCache = useCache
+        self.maximumRefreshSeconds = min(180, max(10, maximumRefreshSeconds))
     }
 
     public static let `default` = RepositoryPolicy()
@@ -129,6 +138,23 @@ public actor RepositoryClient {
 
     public func refresh(_ source: RepositorySource) async throws -> RepositoryRefresh {
         guard source.isValid else { throw RepositoryError.invalidURL(source.url) }
+        let deadline = policy.maximumRefreshSeconds
+        return try await withThrowingTaskGroup(of: RepositoryRefresh.self) { group in
+            group.addTask { try await self.refreshWithoutDeadline(source) }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(deadline) * 1_000_000_000)
+                try Task.checkCancellation()
+                throw RepositoryError.refreshTimedOut(source: source.name, seconds: deadline)
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else {
+                throw RepositoryError.refreshTimedOut(source: source.name, seconds: deadline)
+            }
+            return first
+        }
+    }
+
+    private func refreshWithoutDeadline(_ source: RepositorySource) async throws -> RepositoryRefresh {
 
         var warnings: [String] = []
         var release: ReleaseFile?
