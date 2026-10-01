@@ -83,6 +83,14 @@ struct PackageDetailView: View {
         }
     }
 
+    private var resolvedIconURL: String? {
+        guard let icon = record.icon?.trimmingCharacters(in: .whitespacesAndNewlines), !icon.isEmpty else { return nil }
+        if URL(string: icon)?.scheme != nil { return icon }
+        guard let base = record.origin?.url,
+              let url = URL(string: icon, relativeTo: URL(string: base + "/")) else { return nil }
+        return url.absoluteURL.absoluteString
+    }
+
     private var packageShareText: String {
         "\(record.displayName) (\(record.name)) \(record.version.raw)"
     }
@@ -112,7 +120,7 @@ struct PackageDetailView: View {
     private var headerSection: some View {
         Section {
             HStack(alignment: .top, spacing: 14) {
-                PackageIcon(urlString: record.icon, size: 62)
+                PackageIcon(urlString: resolvedIconURL, size: 72, fallbackText: record.displayName)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(record.displayName)
                         .font(.title3.weight(.semibold))
