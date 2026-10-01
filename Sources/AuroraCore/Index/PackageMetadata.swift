@@ -147,10 +147,10 @@ public enum SourceInterchange {
                         let suite = fields.count > urlIndex + 1 ? fields[urlIndex + 1] : "./"
                         let components = fields.count > urlIndex + 2 ? Array(fields.dropFirst(urlIndex + 2)) : []
                         let options = fields[1..<urlIndex].joined(separator: " ")
+                            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
                         let architectures = options.split(whereSeparator: \.isWhitespace)
                             .first(where: { $0.hasPrefix("arch=") })
-                            .map { String($0.dropFirst(5)).trimmingCharacters(in: CharacterSet(charactersIn: "]"))
-                                .split(separator: ",").map(String.init) } ?? []
+                            .map { String($0.dropFirst(5)).split(separator: ",").map(String.init) } ?? []
                         source = RepositorySource(
                             name: hostName(url), url: url, suite: suite,
                             components: components, architectures: architectures
