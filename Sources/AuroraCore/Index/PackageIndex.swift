@@ -247,13 +247,44 @@ public struct PackageIndex: Sendable {
         allowedArchitectures: Set<String> = [],
         policy: PackagePolicy = .default
     ) -> PackageRecord? {
-        rankedMatches(
-            for: term,
-            architecture: architecture,
-            requestedArchitecture: requestedArchitecture,
+        // Explicit package browsing has a deliberate foreign-architecture escape
+        // hatch implemented by rankedMatches(). Dependency/upgrade planning always
+        // supplies requestedArchitecture, so it can use the much cheaper one-pass
+        // selector below.
+        guard let requestedArchitecture else {
+            return rankedMatches(
+                for: term,
+                architecture: architecture,
+                requestedArchitecture: nil,
+                allowedArchitectures: allowedArchitectures,
+                policy: policy
+            ).first
+        }
+        guard policy.allows(term.name) else { return nil }
+
+        var pool = candidates(named: term.name)
+        pool.append(contentsOf: providers(of: term.name))
+        if pool.count > 1 {
+            var seen = Set<String>()
+            seen.reserveCapacity(pool.count)
+            pool = pool.filter {
+                let key = "\($0.id)|\($0.origin?.description ?? "")"
+                return seen.insert(key).inserted
+            }
+        }
+
+        let satisfier = DependencySatisfier(
+            nativeArchitecture: architecture,
             allowedArchitectures: allowedArchitectures,
             policy: policy
-        ).first
+        )
+        return satisfier.bestSatisfier(
+            of: DependencyClause(alternatives: [term]),
+            in: pool,
+            requestedArchitecture: requestedArchitecture,
+            policy: policy,
+            requiredTermVersion: policy.requiredVersion(for: term.name)
+        )
     }
 
     /// Versions of a package offered for one architecture, newest first. Used by

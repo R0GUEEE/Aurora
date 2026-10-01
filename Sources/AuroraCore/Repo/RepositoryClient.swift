@@ -491,10 +491,17 @@ public actor RepositoryClient {
     /// stanzas actually describe packages. Mirrors sometimes serve an HTML page
     /// with status 200 for missing files.
     static func packageRecords(in data: Data, origin: RepositoryID) -> [PackageRecord] {
-        ControlParser.parse(data).compactMap { stanza in
-            guard stanza.has("Package") else { return nil }
-            return PackageRecord(stanza: stanza, origin: origin)
+        let text = String(decoding: data, as: UTF8.self)
+        var records: [PackageRecord] = []
+        // A typical Packages paragraph is several hundred bytes. Reserving a
+        // conservative fraction avoids repeated growth without grossly
+        // over-allocating on small indexes.
+        records.reserveCapacity(max(8, data.count / 700))
+        ControlParser.forEachStanza(in: text) { stanza in
+            guard stanza.has("Package") else { return }
+            records.append(PackageRecord(stanza: stanza, origin: origin))
         }
+        return records
     }
 
     /// `(path, format)` pairs for one component and architecture, best format first.
@@ -748,7 +755,10 @@ actor IndexCache {
     }
 
     private let directory: String
+    private let memoryLimitBytes = 8 * (1 << 20)
     private var memory: [String: Entry] = [:]
+    private var memoryOrder: [String] = []
+    private var memoryBytes = 0
     private var preferredFormats: [String: CompressionFormat] = [:]
 
     init(directory: String) {
@@ -765,6 +775,22 @@ actor IndexCache {
             hash = hash &* 0x100000001b3
         }
         return String(hash, radix: 16)
+    }
+
+    private func rememberInMemory(_ entry: Entry, for url: String) {
+        if let existing = memory[url] {
+            memoryBytes -= existing.payload.count
+            memoryOrder.removeAll { $0 == url }
+        }
+        memory[url] = entry
+        memoryOrder.append(url)
+        memoryBytes += entry.payload.count
+
+        while memoryBytes > memoryLimitBytes, !memoryOrder.isEmpty {
+            let victim = memoryOrder.removeFirst()
+            guard let removed = memory.removeValue(forKey: victim) else { continue }
+            memoryBytes -= removed.payload.count
+        }
     }
 
     func preferredFormat(for sourceURL: String) -> CompressionFormat? {
@@ -795,12 +821,13 @@ actor IndexCache {
             lastModified = fields["lastModified"]
         }
         let entry = Entry(payload: payload, etag: etag, lastModified: lastModified, fetchedAt: Date())
-        memory[url] = entry
+        rememberInMemory(entry, for: url)
         return entry
     }
 
     func store(payload: Data, for url: String, etag: String?, lastModified: String?) {
-        memory[url] = Entry(payload: payload, etag: etag, lastModified: lastModified, fetchedAt: Date())
+        let entry = Entry(payload: payload, etag: etag, lastModified: lastModified, fetchedAt: Date())
+        rememberInMemory(entry, for: url)
         let path = (directory as NSString).appendingPathComponent(key(for: url))
         try? payload.write(to: URL(fileURLWithPath: path), options: .atomic)
         var fields: [String: String] = ["url": url]
@@ -823,6 +850,8 @@ actor IndexCache {
 
     func clear() {
         memory.removeAll()
+        memoryOrder.removeAll()
+        memoryBytes = 0
         preferredFormats.removeAll()
         try? FileManager.default.removeItem(atPath: directory)
         try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)

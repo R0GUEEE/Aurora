@@ -196,6 +196,62 @@ public struct DependencySatisfier: Sendable {
         return ranked.sorted { Self.isBetter($0, $1, policy: effectivePolicy) }
     }
 
+    /// Finds only the best satisfier without allocating and sorting the full
+    /// ranked result set. Dependency resolution overwhelmingly needs one winner,
+    /// so this avoids O(n log n) work for every dependency clause.
+    public func bestSatisfier(
+        of clause: DependencyClause,
+        in candidates: [PackageRecord],
+        requestedArchitecture: String,
+        excluding excludedName: String? = nil,
+        policy: PackagePolicy? = nil,
+        requiredTermVersion: String? = nil
+    ) -> PackageRecord? {
+        let effectivePolicy = policy ?? self.policy
+
+        for term in clause.alternatives {
+            var best: Ranked?
+            for candidate in candidates {
+                if candidate.name == excludedName { continue }
+                guard let rank = architectureRank(
+                    term,
+                    candidate: candidate,
+                    requestedArchitecture: requestedArchitecture
+                ) else { continue }
+                guard effectivePolicy.allows(candidate.name) else { continue }
+                guard matchesIgnoringPolicy(
+                    term,
+                    candidate: candidate,
+                    requestedArchitecture: requestedArchitecture
+                ) else { continue }
+                if let required = effectivePolicy.requiredVersion(for: candidate.name),
+                   required != candidate.version.raw {
+                    continue
+                }
+                if let requiredTermVersion, candidate.version.raw != requiredTermVersion {
+                    continue
+                }
+
+                let ranked = Ranked(
+                    record: candidate,
+                    architectureRank: rank,
+                    providedRank: candidate.name == term.name ? 0 : 1
+                )
+                if let current = best {
+                    if Self.isBetter(ranked, current, policy: effectivePolicy) {
+                        best = ranked
+                    }
+                } else {
+                    best = ranked
+                }
+            }
+            // Alternatives are preference ordered. As soon as this alternative
+            // has a satisfier, later alternatives are intentionally ignored.
+            if let best { return best.record }
+        }
+        return nil
+    }
+
     /// The single best satisfier in a set of records, or nil.
     public func satisfier(
         of clause: DependencyClause,
@@ -204,15 +260,13 @@ public struct DependencySatisfier: Sendable {
         excluding excludedName: String? = nil,
         policy: PackagePolicy? = nil
     ) -> PackageRecord? {
-        let effectivePolicy = policy ?? self.policy
-        let filtered = (excludedName.map { name in candidates.filter { $0.name != name } } ?? candidates)
-            .filter { effectivePolicy.allows($0.name) }
-        return rankedSatisfiers(
+        bestSatisfier(
             of: clause,
-            in: filtered,
+            in: candidates,
             requestedArchitecture: requestedArchitecture,
-            policy: effectivePolicy
-        ).first?.record
+            excluding: excludedName,
+            policy: policy
+        )
     }
 
     /// The ordering rule, in one place so the index and the resolver cannot drift.

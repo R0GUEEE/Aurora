@@ -22,6 +22,14 @@ final class ControlStanzaTests: XCTestCase {
                        ["3.1-1", "3.0-1"])
     }
 
+    func testStreamingParserMatchesArrayParser() throws {
+        let text = try Fixture.text(Fixture.packagesIndex)
+        let parsed = ControlParser.parse(text)
+        var streamed: [ControlStanza] = []
+        ControlParser.forEachStanza(in: text) { streamed.append($0) }
+        XCTAssertEqual(streamed, parsed)
+    }
+
     func testFieldOrderAndSpellingSurviveParsing() throws {
         let stanzas = ControlParser.parse(try Fixture.text(Fixture.packagesIndex))
         let bash = try XCTUnwrap(stanzas.first)

@@ -74,25 +74,71 @@ public struct InstalledPackage: Hashable, Sendable {
 public struct InstalledPackageDatabase: Sendable {
 
     public private(set) var packages: [String: InstalledPackage]
+    private var keysByName: [String: [String]]
+    private var presentKeys: Set<String>
+    private var brokenKeys: Set<String>
 
     public init(packages: [String: InstalledPackage] = [:]) {
         self.packages = packages
+        self.keysByName = Self.makeNameIndex(packages)
+        let status = Self.makeStatusIndexes(packages)
+        self.presentKeys = status.present
+        self.brokenKeys = status.broken
     }
 
     public init(parsing text: String) {
         var packages: [String: InstalledPackage] = [:]
-        for stanza in ControlParser.parse(text) where !stanza.isEmpty {
+        packages.reserveCapacity(512)
+        ControlParser.forEachStanza(in: text) { stanza in
+            guard !stanza.isEmpty else { return }
             let entry = InstalledPackage(stanza: stanza)
-            guard !entry.name.isEmpty else { continue }
+            guard !entry.name.isEmpty else { return }
             packages[entry.key] = entry
         }
         self.packages = packages
+        self.keysByName = Self.makeNameIndex(packages)
+        let status = Self.makeStatusIndexes(packages)
+        self.presentKeys = status.present
+        self.brokenKeys = status.broken
     }
 
     public init(contentsOf path: String) throws {
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         self.init(parsing: String(decoding: data, as: UTF8.self))
     }
+
+    private static func makeNameIndex(_ packages: [String: InstalledPackage]) -> [String: [String]] {
+        var result: [String: [String]] = [:]
+        result.reserveCapacity(packages.count)
+        for (key, package) in packages {
+            result[package.name, default: []].append(key)
+        }
+        return result
+    }
+
+    private static func makeStatusIndexes(
+        _ packages: [String: InstalledPackage]
+    ) -> (present: Set<String>, broken: Set<String>) {
+        var present = Set<String>()
+        var broken = Set<String>()
+        present.reserveCapacity(packages.count)
+        broken.reserveCapacity(max(8, packages.count / 16))
+        for (key, package) in packages {
+            let status = package.status
+            guard !status.isRemoved else { continue }
+            present.insert(key)
+            if status.isBroken { broken.insert(key) }
+        }
+        return (present, broken)
+    }
+
+    private mutating func rebuildIndexes() {
+        keysByName = Self.makeNameIndex(packages)
+        let status = Self.makeStatusIndexes(packages)
+        presentKeys = status.present
+        brokenKeys = status.broken
+    }
+
 
     public var count: Int { packages.count }
 
@@ -107,19 +153,30 @@ public struct InstalledPackageDatabase: Sendable {
     /// has to try both spellings before falling back to "any instance of that
     /// name", which is what an `all` package needs.
     public func package(named name: String, architecture: String? = nil) -> InstalledPackage? {
-        if let architecture, architecture != "all" {
-            if let exact = packages["\(name):\(architecture)"] { return exact }
+        if let architecture, architecture != "all",
+           let exact = packages["\(name):\(architecture)"] {
+            return exact
         }
         if let plain = packages[name] { return plain }
-        if let architecture, let exact = packages.values.first(where: {
-            $0.name == name && ($0.architecture == architecture || $0.architecture == "all")
-        }) { return exact }
-        return packages.values.first { $0.name == name }
+        guard let keys = keysByName[name] else { return nil }
+
+        if let architecture {
+            for key in keys {
+                guard let candidate = packages[key] else { continue }
+                if candidate.architecture == architecture || candidate.architecture == "all" {
+                    return candidate
+                }
+            }
+        }
+        for key in keys {
+            if let candidate = packages[key] { return candidate }
+        }
+        return nil
     }
 
     /// The installed instance with that exact instance key (`name:arch`).
     public func package(instanceKey: String) -> InstalledPackage? {
-        packages[instanceKey] ?? packages.values.first { $0.instanceKey == instanceKey }
+        packages[instanceKey]
     }
 
     /// True when *any* instance of that name is installed and configured.
@@ -130,18 +187,30 @@ public struct InstalledPackageDatabase: Sendable {
     /// Packages dpkg considers present, including half-installed ones — the
     /// resolver must reason about those, not only about the clean ones.
     public var present: [InstalledPackage] {
-        packages.values.filter { !$0.status.isRemoved }
+        presentKeys.compactMap { packages[$0] }
     }
 
     public var brokenPackages: [InstalledPackage] {
-        present.filter { $0.status.isBroken }
+        brokenKeys.compactMap { packages[$0] }
     }
 
     // MARK: - Mutation
 
     public mutating func set(_ stanza: ControlStanza) {
         let entry = InstalledPackage(stanza: stanza)
+        let isNew = packages[entry.key] == nil
         packages[entry.key] = entry
+        if isNew {
+            keysByName[entry.name, default: []].append(entry.key)
+        }
+
+        presentKeys.remove(entry.key)
+        brokenKeys.remove(entry.key)
+        let status = entry.status
+        if !status.isRemoved {
+            presentKeys.insert(entry.key)
+            if status.isBroken { brokenKeys.insert(entry.key) }
+        }
     }
 
     /// Marks a package as removed in the way dpkg does: `remove` keeps the
@@ -158,6 +227,7 @@ public struct InstalledPackageDatabase: Sendable {
             } else {
                 packages = packages.filter { $0.value.name != name }
             }
+            rebuildIndexes()
         } else {
             var stanza = entry.stanza
             stanza["Status"] = "deinstall ok config-files"
