@@ -27,6 +27,7 @@ struct PackageDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(record.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { store.recordPackageView(record.name) }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 ShareLink(item: packageShareText) {
@@ -47,6 +48,21 @@ struct PackageDetailView: View {
                         showingRawMetadata = true
                     } label: {
                         Label("Raw Metadata", systemImage: "doc.plaintext")
+                    }
+                    if !store.collectionNames.isEmpty {
+                        Divider()
+                        Menu {
+                            ForEach(store.collectionNames, id: \.self) { collection in
+                                let included = store.isInCollection(record.name, collection: collection)
+                                Button {
+                                    store.setPackage(record.name, inCollection: collection, included: !included)
+                                } label: {
+                                    Label(collection, systemImage: included ? "checkmark.circle.fill" : "circle")
+                                }
+                            }
+                        } label: {
+                            Label("Collections", systemImage: "folder")
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
