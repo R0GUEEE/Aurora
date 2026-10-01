@@ -49,6 +49,8 @@ public struct RepositoryLink: Sendable, Equatable {
         }
 
         if !input.contains("://") {
+            let hostCandidate = input.split(separator: "/", maxSplits: 1).first.map(String.init) ?? input
+            guard hostCandidate == "localhost" || hostCandidate.contains(".") else { return nil }
             input = "https://" + input
         }
 
