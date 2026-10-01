@@ -113,6 +113,7 @@ final class AuroraStore: ObservableObject {
     @Published private(set) var sections: [PackageSection] = []
     @Published private(set) var sectionNames: [String] = []
     @Published private(set) var architectureNames: [String] = []
+    @Published private(set) var cachedCacheSizeBytes: Int = 0
 
     @Published private(set) var installed = InstalledPackageDatabase()
     /// Why the installed database is empty, when it is (no jailbreak, no dpkg).
@@ -147,6 +148,7 @@ final class AuroraStore: ObservableObject {
     private var lastAutomaticRefresh: Date?
     private var upgradableNames: Set<String> = []
     private var newPackageCache: [PackageRecord] = []
+    private var cachedCacheCategoryBytes: [String: Int] = [:]
 
     // MARK: - Lifecycle
 
@@ -194,6 +196,8 @@ final class AuroraStore: ObservableObject {
         if settings.autoRefreshOnLaunch {
             await refreshAll(forceReload: false)
             lastAutomaticRefresh = Date()
+        } else {
+            await refreshCacheMetrics()
         }
     }
 
@@ -824,6 +828,7 @@ final class AuroraStore: ObservableObject {
         } else if skipped > 0 {
             statusMessage = "Refresh complete. Skipped \(skipped) failed repositor\(skipped == 1 ? "y" : "ies")."
         }
+        await refreshCacheMetrics()
     }
 
     func refresh(sourceID: UUID) async {
@@ -831,6 +836,7 @@ final class AuroraStore: ObservableObject {
         refreshState = .refreshing(done: 0, total: 1)
         defer { refreshState = .idle }
         await refresh(source, using: makeRepositoryClient(useCache: true))
+        await refreshCacheMetrics()
     }
 
     private enum RefreshOutcome: Sendable {
@@ -1797,6 +1803,7 @@ final class AuroraStore: ObservableObject {
         indexWarnings = [:]
         signatureStatus = [:]
         rebuildIndexes()
+        refreshCacheMetricsSynchronously()
 
         return removed == 0
             ? "Nothing was cached."
@@ -1828,6 +1835,7 @@ final class AuroraStore: ObservableObject {
         for index in sources.indices { sources[index].lastRefreshed = nil }
         persistSources()
         rebuildIndexes()
+        refreshCacheMetricsSynchronously()
         return "Repository data cleaned (\(AuroraFormat.bytes(Int(bytes)))). Refresh to rebuild indexes."
     }
 
@@ -1840,6 +1848,7 @@ final class AuroraStore: ObservableObject {
         do {
             try manager.removeItem(atPath: directory)
             try manager.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            refreshCacheMetricsSynchronously()
             return "Downloaded package cache cleaned."
         } catch {
             return "Could not clean downloaded packages: \(AuroraFormat.message(for: error))"
@@ -1868,33 +1877,57 @@ final class AuroraStore: ObservableObject {
             let path = (directory as NSString).appendingPathComponent(name)
             if (try? manager.removeItem(atPath: path)) != nil { removed += 1 }
         }
+        refreshCacheMetricsSynchronously()
         return removed == 0 ? "No unused local packages." : "Removed \(removed) unused local package\(removed == 1 ? "" : "s")."
     }
 
     func cacheBreakdown() -> [(name: String, bytes: Int)] {
-        let manager = FileManager.default
-        let root = environment.cacheDirectory
-        let categories = [
-            ("Repository indexes", root + "/indexes"),
-            ("Downloaded packages", root + "/packages"),
-            ("Local packages", root + "/LocalPackages")
-        ]
-        return categories.map { name, path in
-            (name, directorySize(path, manager: manager))
+        ["Repository indexes", "Downloaded packages", "Local packages"].map {
+            ($0, cachedCacheCategoryBytes[$0] ?? 0)
         }
     }
 
-    private func directorySize(_ path: String, manager: FileManager) -> Int {
-        guard let enumerator = manager.enumerator(atPath: path) else { return 0 }
+    private func refreshCacheMetrics() async {
+        let root = environment.cacheDirectory
+        let metrics = await Task.detached(priority: .utility) {
+            Self.measureCache(root: root)
+        }.value
+        cachedCacheCategoryBytes = metrics.categories
+        cachedCacheSizeBytes = metrics.total
+    }
+
+    private func refreshCacheMetricsSynchronously() {
+        let metrics = Self.measureCache(root: environment.cacheDirectory)
+        cachedCacheCategoryBytes = metrics.categories
+        cachedCacheSizeBytes = metrics.total
+    }
+
+    nonisolated private static func measureCache(root: String) -> (categories: [String: Int], total: Int) {
+        let manager = FileManager.default
+        let paths = [
+            ("Repository indexes", root + "/indexes"),
+            ("Downloaded packages", root + "/packages"),
+            ("Local packages", root + "/LocalPackages"),
+        ]
+        var categories: [String: Int] = [:]
+        categories.reserveCapacity(paths.count)
         var total = 0
-        for case let relative as String in enumerator {
-            let full = (path as NSString).appendingPathComponent(relative)
-            if let attributes = try? manager.attributesOfItem(atPath: full),
-               let size = attributes[.size] as? NSNumber {
-                total += size.intValue
+
+        for (name, path) in paths {
+            var bytes = 0
+            if let enumerator = manager.enumerator(atPath: path) {
+                for case let relative as String in enumerator {
+                    let full = (path as NSString).appendingPathComponent(relative)
+                    if let attributes = try? manager.attributesOfItem(atPath: full),
+                       let size = attributes[.size] as? NSNumber {
+                        bytes += size.intValue
+                    }
+                }
             }
+            categories[name] = bytes
+            total += bytes
         }
-        return total
+        return (categories, total)
     }
 
     var diagnosticsReport: String {
@@ -1907,7 +1940,7 @@ final class AuroraStore: ObservableObject {
             "Installed packages: \(installed.count)",
             "Updates: \(upgradePlan.upgradable.count)",
             "Held/pinned: \(packagePolicy.pins.count)",
-            "Cache: \(AuroraFormat.bytes(cacheSizeBytes()))",
+            "Cache: \(AuroraFormat.bytes(cachedCacheSizeBytes))",
             ""
         ]
         for source in sources {
@@ -1918,19 +1951,10 @@ final class AuroraStore: ObservableObject {
         return lines.joined(separator: "\n")
     }
 
-    /// Best-effort size of everything Aurora has cached on disk.
+    /// Cached cache size for UI/diagnostics. Disk enumeration happens only when
+    /// cache contents may have changed, never during a SwiftUI render.
     func cacheSizeBytes() -> Int {
-        let manager = FileManager.default
-        guard let enumerator = manager.enumerator(atPath: environment.cacheDirectory) else { return 0 }
-        var total = 0
-        for case let relative as String in enumerator {
-            let full = (environment.cacheDirectory as NSString).appendingPathComponent(relative)
-            if let attributes = try? manager.attributesOfItem(atPath: full),
-               let size = attributes[.size] as? NSNumber {
-                total += size.intValue
-            }
-        }
-        return total
+        cachedCacheSizeBytes
     }
 
     // MARK: - Persistence
