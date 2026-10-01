@@ -28,6 +28,25 @@ enum RefreshState: Equatable {
     }
 }
 
+struct RepositoryRefreshActivity: Identifiable, Equatable {
+    enum Phase: String {
+        case queued = "Queued"
+        case refreshing = "Scanning"
+        case complete = "Complete"
+        case failed = "Failed"
+    }
+    let id: UUID
+    var phase: Phase
+    var startedAt: Date?
+    var finishedAt: Date?
+    var message: String?
+
+    var elapsed: TimeInterval {
+        guard let startedAt else { return 0 }
+        return (finishedAt ?? Date()).timeIntervalSince(startedAt)
+    }
+}
+
 /// The result of reading the dpkg database off the main thread.
 private struct InstalledLoadOutcome: Sendable {
     let database: InstalledPackageDatabase
@@ -521,6 +540,9 @@ final class AuroraStore: ObservableObject {
             return
         }
         refreshState = .refreshing(done: 0, total: enabled.count)
+        repositoryRefreshActivity = Dictionary(uniqueKeysWithValues: enabled.map {
+            ($0.id, RepositoryRefreshActivity(id: $0.id, phase: .queued, startedAt: nil, finishedAt: nil, message: nil))
+        })
         defer { refreshState = .idle }
         // Keep the cache available even for a forced refresh. A forced refresh means
         // revalidate with the server; ETag/Last-Modified can still turn unchanged
@@ -543,6 +565,9 @@ final class AuroraStore: ObservableObject {
 
         await withTaskGroup(of: RefreshOutcome.self) { group in
             func enqueue(_ source: RepositorySource) {
+                repositoryRefreshActivity[source.id] = RepositoryRefreshActivity(
+                    id: source.id, phase: .refreshing, startedAt: Date(), finishedAt: nil, message: nil
+                )
                 group.addTask {
                     let client = RepositoryClient(
                         environment: environment,
@@ -605,12 +630,24 @@ final class AuroraStore: ObservableObject {
     private func applyRefreshOutcome(_ outcome: RefreshOutcome) {
         switch outcome {
         case .success(let id, let result):
+            if var activity = repositoryRefreshActivity[id] {
+                activity.phase = .complete
+                activity.finishedAt = Date()
+                activity.message = "\(result.index.count) packages"
+                repositoryRefreshActivity[id] = activity
+            }
             indexBySource[id] = result.index
             indexErrors[id] = nil
             indexWarnings[id] = result.warnings
             signatureStatus[id] = result.signature
             recordSourceOutcome(id: id, refreshedAt: result.fetchedAt, error: nil, persist: false)
         case .failure(let id, let message):
+            if var activity = repositoryRefreshActivity[id] {
+                activity.phase = .failed
+                activity.finishedAt = Date()
+                activity.message = message
+                repositoryRefreshActivity[id] = activity
+            }
             indexErrors[id] = message
             indexWarnings[id] = []
             signatureStatus[id] = nil
