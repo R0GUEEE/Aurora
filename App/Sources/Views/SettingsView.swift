@@ -81,6 +81,10 @@ struct SettingsView: View {
                 get: { store.settings.autoRefreshOnLaunch },
                 set: { store.setAutoRefresh($0) }
             ))
+            Toggle("Skip failed repositories during Refresh All", isOn: Binding(
+                get: { store.settings.skipFailedRepositories },
+                set: { store.setSkipFailedRepositories($0) }
+            ))
             Toggle("Ignore signature failures", isOn: Binding(
                 get: { store.settings.ignoreSignatureFailures },
                 set: { store.setIgnoreSignatureFailures($0) }
@@ -99,7 +103,7 @@ struct SettingsView: View {
         } header: {
             Text("Repositories")
         } footer: {
-            Text("Most jailbreak repositories are unsigned; with signature checking enforced they are refused instead of being shown with a warning. Rootful packages use legacy root filesystem paths. Conversion is opt-in and best-effort; packages with hard-coded paths, incompatible binaries, or complex maintainer scripts may still fail after conversion.")
+            Text("Failed-repository skipping keeps dead sources out of normal bulk refreshes; Retry Failed and per-repository refresh still test them. Most jailbreak repositories are unsigned; with signature checking enforced they are refused instead of being shown with a warning. Rootful packages use legacy root filesystem paths. Conversion is opt-in and best-effort; packages with hard-coded paths, incompatible binaries, or complex maintainer scripts may still fail after conversion.")
         }
     }
 
@@ -138,6 +142,11 @@ struct SettingsView: View {
                 get: { store.settings.compactPackageRows },
                 set: { store.setCompactPackageRows($0) }
             ))
+            Toggle("Show package descriptions", isOn: Binding(
+                get: { store.settings.showPackageDescriptions },
+                set: { store.setShowPackageDescriptions($0) }
+            ))
+            .disabled(store.settings.compactPackageRows)
         } header: {
             Text("Behavior & Appearance")
         } footer: {
