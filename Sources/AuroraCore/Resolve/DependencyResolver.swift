@@ -117,34 +117,51 @@ public struct DependencyResolver: Sendable {
 struct TargetSet {
 
     private var byKey: [String: PackageRecord] = [:]
+    private var keysByName: [String: Set<String>] = [:]
 
     var isEmpty: Bool { byKey.isEmpty }
     var count: Int { byKey.count }
 
+    /// Deterministically sorted view for final plan/report generation.
     var all: [PackageRecord] {
         byKey.values.sorted { $0.instanceKey < $1.instanceKey }
+    }
+
+    /// Unordered hot-path view for membership/satisfaction checks.
+    var values: [PackageRecord] {
+        Array(byKey.values)
     }
 
     func record(forKey key: String) -> PackageRecord? { byKey[key] }
 
     func instances(of name: String) -> [PackageRecord] {
-        byKey.values.filter { $0.name == name }.sorted { $0.architecture < $1.architecture }
+        guard let keys = keysByName[name] else { return [] }
+        return keys.compactMap { byKey[$0] }
+            .sorted { $0.architecture < $1.architecture }
     }
 
     func contains(name: String) -> Bool {
-        byKey.values.contains { $0.name == name }
+        !(keysByName[name]?.isEmpty ?? true)
     }
 
     mutating func insert(_ record: PackageRecord) {
+        if let previous = byKey[record.instanceKey], previous.name != record.name {
+            keysByName[previous.name]?.remove(record.instanceKey)
+            if keysByName[previous.name]?.isEmpty == true { keysByName.removeValue(forKey: previous.name) }
+        }
         byKey[record.instanceKey] = record
+        keysByName[record.name, default: []].insert(record.instanceKey)
     }
 
     mutating func remove(key: String) {
-        byKey.removeValue(forKey: key)
+        guard let removed = byKey.removeValue(forKey: key) else { return }
+        keysByName[removed.name]?.remove(key)
+        if keysByName[removed.name]?.isEmpty == true { keysByName.removeValue(forKey: removed.name) }
     }
 
     mutating func removeAll(named name: String) {
-        byKey = byKey.filter { $0.value.name != name }
+        guard let keys = keysByName.removeValue(forKey: name) else { return }
+        for key in keys { byKey.removeValue(forKey: key) }
     }
 
     func filter(_ predicate: (PackageRecord) -> Bool) -> [PackageRecord] {
@@ -313,7 +330,7 @@ private final class Resolution {
         // Re-check only packages this transaction touches. Walking every installed
         // package here made an unrelated pre-existing broken dependency block all
         // new installs, despite verify() deliberately allowing that device state.
-        var pending = target.all.filter { inTransaction.contains($0.name) }
+        var pending = target.values.filter { inTransaction.contains($0.name) }
         var processed: Set<String> = []
 
         while let record = pending.popLast() {
@@ -376,7 +393,7 @@ private final class Resolution {
     ) -> PackageRecord? {
         policy.satisfier.satisfier(
             of: clause,
-            in: target.all,
+            in: target.values,
             requestedArchitecture: requestedArchitecture,
             excluding: excludingName,
             policy: policy.packagePolicy
@@ -440,7 +457,7 @@ private final class Resolution {
         // installed would turn "install one new package" into a plan that touches
         // every co-installable library on the device.
         let names = Set(
-            target.all
+            target.values
                 .filter { $0.isMultiArchSame && (explicitNames.contains($0.name) || pulledInNames.contains($0.name)) }
                 .map(\.name)
         )
