@@ -137,6 +137,11 @@ struct SettingsView: View {
                 get: { store.settings.repositoryTimeoutSeconds },
                 set: { store.setRepositoryTimeoutSeconds($0) }
             ), in: 3...60)
+            Menu("Performance Preset") {
+                Button("Aggressive") { store.applyPerformancePreset("aggressive") }
+                Button("Balanced") { store.applyPerformancePreset("balanced") }
+                Button("Conservative") { store.applyPerformancePreset("conservative") }
+            }
             Toggle("Fast parallel repository scan", isOn: Binding(
                 get: { store.settings.fastRepositoryScan },
                 set: { store.setFastRepositoryScan($0) }
@@ -148,6 +153,18 @@ struct SettingsView: View {
             Toggle("Remember working index compression", isOn: Binding(
                 get: { store.settings.preferCachedIndexFormat },
                 set: { store.setPreferCachedIndexFormat($0) }
+            ))
+            Toggle("Use repository index cache", isOn: Binding(
+                get: { store.settings.useRepositoryCache },
+                set: { store.setUseRepositoryCache($0) }
+            ))
+            Stepper("Maximum index size: \(store.settings.maximumIndexSizeMB) MB", value: Binding(
+                get: { store.settings.maximumIndexSizeMB },
+                set: { store.setMaximumIndexSizeMB($0) }
+            ), in: 32...1024, step: 32)
+            Toggle("Show repository warnings", isOn: Binding(
+                get: { store.settings.showRepositoryWarnings },
+                set: { store.setShowRepositoryWarnings($0) }
             ))
             Toggle("Retry failed repositories during Refresh All", isOn: Binding(
                 get: { store.settings.refreshFailedRepositories },
@@ -175,6 +192,14 @@ struct SettingsView: View {
                 set: { store.setShowPackageDescriptions($0) }
             ))
             .disabled(store.settings.compactPackageRows)
+            Toggle("Confirm queue before installation", isOn: Binding(
+                get: { store.settings.confirmQueueBeforeInstall },
+                set: { store.setConfirmQueueBeforeInstall($0) }
+            ))
+            Toggle("Refresh after transactions", isOn: Binding(
+                get: { store.settings.refreshAfterTransaction },
+                set: { store.setRefreshAfterTransaction($0) }
+            ))
         } header: {
             Text("Behavior & Appearance")
         } footer: {
@@ -239,6 +264,14 @@ struct SettingsView: View {
             ForEach(store.cacheBreakdown(), id: \.name) { item in
                 DetailRow(label: item.name, value: AuroraFormat.bytes(item.bytes))
             }
+            Toggle("Auto-clean repository data", isOn: Binding(
+                get: { store.settings.autoCleanRepositoryData },
+                set: { store.setAutoCleanRepositoryData($0) }
+            ))
+            Toggle("Auto-clean downloaded packages", isOn: Binding(
+                get: { store.settings.autoCleanDownloadedPackages },
+                set: { store.setAutoCleanDownloadedPackages($0) }
+            ))
             Button {
                 statusText = store.cleanRepositoryData()
             } label: {
@@ -265,6 +298,7 @@ struct SettingsView: View {
 
     private var diagnosticsSection: some View {
         Section {
+            Button("Reset Settings to Defaults", role: .destructive) { store.resetSettings() }
             Button("Show state files") { isShowingLogs = true }
             ShareLink(item: store.diagnosticsReport) {
                 Label("Share Diagnostics Report", systemImage: "square.and.arrow.up")
