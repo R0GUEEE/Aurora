@@ -13,6 +13,7 @@ struct PackageDetailView: View {
 
     @State private var isChoosingVersion = false
     @State private var depictionTarget: DepictionTarget?
+    @State private var showingRawMetadata = false
 
     var body: some View {
         List {
@@ -27,7 +28,29 @@ struct PackageDetailView: View {
         .navigationTitle(record.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                ShareLink(item: packageShareText) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                Menu {
+                    Button {
+                        UIPasteboard.general.string = record.name
+                    } label: {
+                        Label("Copy Package ID", systemImage: "doc.on.doc")
+                    }
+                    Button {
+                        UIPasteboard.general.string = record.version.raw
+                    } label: {
+                        Label("Copy Version", systemImage: "number")
+                    }
+                    Button {
+                        showingRawMetadata = true
+                    } label: {
+                        Label("Raw Metadata", systemImage: "doc.plaintext")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
                 Button { store.toggleBookmark(record.name) } label: {
                     Image(systemName: store.isBookmarked(record.name) ? "bookmark.fill" : "bookmark")
                 }
@@ -45,6 +68,43 @@ struct PackageDetailView: View {
         .sheet(item: $depictionTarget) { target in
             DepictionScreen(title: target.title, url: target.url)
         }
+        .sheet(isPresented: $showingRawMetadata) {
+            NavigationStack {
+                ScrollView {
+                    Text(rawMetadata)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+                .navigationTitle("Package Metadata")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+        }
+    }
+
+    private var packageShareText: String {
+        "\(record.displayName) (\(record.name)) \(record.version.raw)"
+    }
+
+    private var rawMetadata: String {
+        var lines = [
+            "Package: \(record.name)",
+            "Name: \(record.displayName)",
+            "Version: \(record.version.raw)",
+            "Architecture: \(record.architecture)",
+            "Section: \(record.section)",
+            "Maintainer: \(record.maintainer)"
+        ]
+        if let origin = record.origin { lines.append("Repository: \(origin.description)") }
+        if let homepage = record.homepage { lines.append("Homepage: \(homepage)") }
+        if !record.relations.depends.allTerms.isEmpty {
+            lines.append("Depends: " + record.relations.depends.allTerms.map(\.description).joined(separator: ", "))
+        }
+        if !record.relations.conflicts.allTerms.isEmpty {
+            lines.append("Conflicts: " + record.relations.conflicts.allTerms.map(\.description).joined(separator: ", "))
+        }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Header
