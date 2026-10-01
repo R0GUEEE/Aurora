@@ -717,6 +717,17 @@ final class AuroraStore: ObservableObject {
         rebuildIndexes()
     }
 
+    func setAllowRootfulConversion(_ value: Bool) {
+        settings.allowRootfulConversion = value
+        persistSettings()
+    }
+
+    func canOfferRootfulConversion(for record: PackageRecord) -> Bool {
+        environment.layout == .rootless
+            && settings.allowRootfulConversion
+            && record.architecture == "iphoneos-arm"
+    }
+
     func setDepictionPreference(_ value: DepictionPreference) {
         settings.depictionPreference = value
         persistSettings()
