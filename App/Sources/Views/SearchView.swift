@@ -38,7 +38,7 @@ struct SearchView: View {
                 Section {
                     ForEach(results) { record in
                         NavigationLink(value: record) {
-                            PackageRow(record: record, state: store.state(for: record))
+                            PackageRow(record: record, state: store.state(for: record), showIcon: store.settings.showPackageIcons, compact: store.settings.compactPackageRows, showDescription: store.settings.showPackageDescriptions)
                         }
                     }
                 } header: {
