@@ -85,9 +85,10 @@ enum AppTab: String, CaseIterable, Codable, Identifiable {
 struct AuroraSettings: Codable, Equatable {
     /// Refresh every enabled repository when the app launches.
     var autoRefreshOnLaunch: Bool
-    /// Treat unsigned or unverifiable repository metadata as acceptable.
+    /// Treat unsigned, unverifiable, or unknown-key repository metadata as acceptable.
+    /// Cryptographically invalid signatures are still rejected.
     var ignoreSignatureFailures: Bool
-    /// Settings schema used to migrate the former permissive signature default.
+    /// Settings schema used for compatibility-policy migrations.
     var settingsSchemaVersion: Int
     /// Permit installing packages whose repository index publishes no SHA-256/512 digest.
     var allowPackagesWithoutDigest: Bool
@@ -126,7 +127,7 @@ struct AuroraSettings: Codable, Equatable {
 
     init(
         autoRefreshOnLaunch: Bool = true,
-        ignoreSignatureFailures: Bool = false,
+        ignoreSignatureFailures: Bool = true,
         allowPackagesWithoutDigest: Bool = false,
         showOnlyRootlessCompatible: Bool = true,
         allowRootfulConversion: Bool = false,
@@ -158,7 +159,7 @@ struct AuroraSettings: Codable, Equatable {
     ) {
         self.autoRefreshOnLaunch = autoRefreshOnLaunch
         self.ignoreSignatureFailures = ignoreSignatureFailures
-        self.settingsSchemaVersion = 1
+        self.settingsSchemaVersion = 2
         self.allowPackagesWithoutDigest = allowPackagesWithoutDigest
         self.showOnlyRootlessCompatible = showOnlyRootlessCompatible
         self.allowRootfulConversion = allowRootfulConversion
@@ -228,13 +229,15 @@ struct AuroraSettings: Codable, Equatable {
         self.autoRefreshOnLaunch =
             (try? container.decode(Bool.self, forKey: .autoRefreshOnLaunch)) ?? true
         let schemaVersion = (try? container.decode(Int.self, forKey: .settingsSchemaVersion)) ?? 0
-        self.settingsSchemaVersion = 1
-        // Before schema 1 this preference defaulted to true, so persisted true
-        // values cannot represent a deliberate user choice. Migrate those files
-        // to enforced signatures; the user can opt back in from Settings.
-        self.ignoreSignatureFailures = schemaVersion == 0
-            ? false
-            : ((try? container.decode(Bool.self, forKey: .ignoreSignatureFailures)) ?? false)
+        self.settingsSchemaVersion = 2
+        // Schema 2 restores jailbreak-ecosystem compatibility: unsigned,
+        // unverifiable and unknown-key repositories are allowed by default.
+        // Existing installs are migrated once so a previous strict default does
+        // not keep every legacy repository blocked after upgrading. Users who
+        // require trusted signatures can turn compatibility mode back off.
+        self.ignoreSignatureFailures = schemaVersion < 2
+            ? true
+            : ((try? container.decode(Bool.self, forKey: .ignoreSignatureFailures)) ?? true)
         self.allowPackagesWithoutDigest =
             (try? container.decode(Bool.self, forKey: .allowPackagesWithoutDigest)) ?? false
         self.showOnlyRootlessCompatible =
