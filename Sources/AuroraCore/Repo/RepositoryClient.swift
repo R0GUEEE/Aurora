@@ -3,7 +3,7 @@ import Foundation
 public enum RepositoryError: Error, CustomStringConvertible {
     case duplicateSource(String)
     case invalidURL(String)
-    case noPackageIndex(source: String, tried: [String])
+    case noPackageIndex(source: String, tried: [String], details: [String])
     case checksumMismatch(path: String, algorithm: HashAlgorithm, expected: String, actual: String)
     case sizeMismatch(path: String, expected: Int, actual: Int)
     case signatureRequired(source: String, reason: String)
@@ -16,9 +16,10 @@ public enum RepositoryError: Error, CustomStringConvertible {
         switch self {
         case .duplicateSource(let url): return "\(url) is already added"
         case .invalidURL(let url): return "\(url) is not a valid repository URL"
-        case .noPackageIndex(let source, let tried):
-            let list = tried.prefix(4).joined(separator: ", ")
-            return "\(source) published no package index Aurora can read (tried \(list))"
+        case .noPackageIndex(let source, let tried, let details):
+            let list = tried.isEmpty ? "no index paths" : tried.joined(separator: ", ")
+            let explanation = details.isEmpty ? "" : "; \(details.prefix(3).joined(separator: "; "))"
+            return "\(source) published no package index Aurora can read (tried \(list))\(explanation)"
         case .checksumMismatch(let path, let algorithm, let expected, let actual):
             return "\(path) has the wrong \(algorithm.rawValue): expected \(expected), got \(actual)"
         case .sizeMismatch(let path, let expected, let actual):
@@ -383,7 +384,11 @@ public actor RepositoryClient {
         }
 
         if records.isEmpty {
-            throw RepositoryError.noPackageIndex(source: source.name, tried: tried)
+            var seenPaths: Set<String> = []
+            var seenDetails: Set<String> = []
+            let uniquePaths = tried.filter { seenPaths.insert($0).inserted }
+            let uniqueDetails = warnings.filter { seenDetails.insert($0).inserted }
+            throw RepositoryError.noPackageIndex(source: source.name, tried: uniquePaths, details: uniqueDetails)
         }
 
         return RepositoryRefresh(

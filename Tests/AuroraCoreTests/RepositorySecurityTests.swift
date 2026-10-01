@@ -64,4 +64,14 @@ final class RepositorySecurityTests: XCTestCase {
         let packages = try Fixture.data(Fixture.packagesIndex)
         XCTAssertFalse(RepositoryClient.packageRecords(in: packages, origin: origin).isEmpty)
     }
+
+    func testNoIndexErrorShowsAllFormatsAndFailureDetails() {
+        let error = RepositoryError.noPackageIndex(
+            source: "Test",
+            tried: ["Packages.zst", "Packages.xz", "Packages.lzma", "Packages.bz2", "Packages.gz", "Packages"],
+            details: ["Packages.zst: no zstd decoder is installed", "Packages.xz: response did not contain package records"]
+        ).description
+        XCTAssertTrue(error.contains("Packages.gz, Packages"))
+        XCTAssertTrue(error.contains("no zstd decoder is installed"))
+    }
 }
