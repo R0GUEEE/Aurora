@@ -19,6 +19,7 @@ struct SettingsView: View {
             environmentSection
             refreshSection
             renderingSection
+            behaviorSection
             tabsSection
             backupSection
             storageSection
@@ -118,6 +119,29 @@ struct SettingsView: View {
             Text("Depictions")
         } footer: {
             Text(store.settings.depictionPreference.explanation)
+        }
+    }
+
+    // MARK: - Behavior
+
+    private var behaviorSection: some View {
+        Section {
+            Toggle("Refresh repositories on launch", isOn: Binding(
+                get: { store.settings.autoRefreshOnLaunch },
+                set: { store.setAutoRefreshOnLaunch($0) }
+            ))
+            Toggle("Show package icons", isOn: Binding(
+                get: { store.settings.showPackageIcons },
+                set: { store.setShowPackageIcons($0) }
+            ))
+            Toggle("Compact package rows", isOn: Binding(
+                get: { store.settings.compactPackageRows },
+                set: { store.setCompactPackageRows($0) }
+            ))
+        } header: {
+            Text("Behavior & Appearance")
+        } footer: {
+            Text("Launch refresh uses cached repository metadata when possible. Manual refresh always requests fresh metadata.")
         }
     }
 
