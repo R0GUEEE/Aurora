@@ -119,7 +119,10 @@ public enum SourceInterchange {
                 let parsedSuites = (stanza.string("Suites") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
                 let parsedComponents = (stanza.string("Components") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
                 let parsedArchitectures = (stanza.string("Architectures") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
-                let enabled = stanza.string("Enabled")?.lowercased() != "no"
+                let addedArchitectures = (stanza.string("Architectures-Add") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+                let removedArchitectures = Set((stanza.string("Architectures-Remove") ?? "").split(whereSeparator: \.isWhitespace).map(String.init))
+                let enabledValue = (stanza.string("Enabled") ?? "yes").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let enabled = !["no", "false", "0"].contains(enabledValue)
                 for rawURL in urls {
                     guard let link = RepositoryLink.parse(rawURL) else { continue }
 
@@ -131,7 +134,9 @@ public enum SourceInterchange {
                     }
 
                     let sourceComponents = stanza.has("Components") ? parsedComponents : link.components
-                    let architectures = stanza.has("Architectures") ? parsedArchitectures : link.architectures
+                    var architectures = stanza.has("Architectures") ? parsedArchitectures : link.architectures
+                    architectures.append(contentsOf: addedArchitectures)
+                    architectures = Array(Set(architectures).subtracting(removedArchitectures)).sorted()
 
                     for suite in suites {
                         append(RepositorySource(
@@ -148,7 +153,7 @@ public enum SourceInterchange {
             }
 
             for rawLine in block.components(separatedBy: .newlines) {
-                let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                let line = stripInlineComment(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !line.isEmpty, !line.hasPrefix("#") else { continue }
                 let fields = line.split(whereSeparator: { $0.isWhitespace }).map(String.init)
                 let source: RepositorySource?
@@ -163,15 +168,25 @@ public enum SourceInterchange {
                         let explicitComponents = fields.count > urlIndex + 2 ? Array(fields.dropFirst(urlIndex + 2)) : []
                         let options = fields[1..<urlIndex].joined(separator: " ")
                             .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-                        let optionArchitectures = options.split(whereSeparator: \.isWhitespace)
-                            .first(where: { $0.hasPrefix("arch=") })
-                            .map { String($0.dropFirst(5)).split(separator: ",").map(String.init) } ?? []
+                        var optionArchitectures = link.architectures
+                        for tokenSub in options.split(whereSeparator: \.isWhitespace) {
+                            let token = String(tokenSub)
+                            if token.hasPrefix("arch=") {
+                                optionArchitectures = String(token.dropFirst(5)).split(separator: ",").map(String.init)
+                            } else if token.hasPrefix("arch+=") {
+                                optionArchitectures.append(contentsOf: String(token.dropFirst(6)).split(separator: ",").map(String.init))
+                            } else if token.hasPrefix("arch-=") {
+                                let removed = Set(String(token.dropFirst(6)).split(separator: ",").map(String.init))
+                                optionArchitectures.removeAll { removed.contains($0) }
+                            }
+                        }
+                        optionArchitectures = Array(Set(optionArchitectures)).sorted()
                         source = RepositorySource(
                             name: hostName(link.url),
                             url: link.url,
                             suite: suite,
                             components: explicitComponents.isEmpty ? link.components : explicitComponents,
-                            architectures: optionArchitectures.isEmpty ? link.architectures : optionArchitectures
+                            architectures: optionArchitectures
                         )
                     } else {
                         source = nil
@@ -212,6 +227,21 @@ public enum SourceInterchange {
             if !source.isEnabled { fields.append("Enabled: no") }
             return fields.joined(separator: "\n")
         }.joined(separator: "\n\n") + (sources.isEmpty ? "" : "\n")
+    }
+
+    private static func stripInlineComment(_ raw: String) -> String {
+        var insideBrackets = false
+        var previous: Character?
+        for index in raw.indices {
+            let character = raw[index]
+            if character == "[" { insideBrackets = true }
+            if character == "]" { insideBrackets = false }
+            if character == "#", !insideBrackets, previous?.isWhitespace != false {
+                return String(raw[..<index])
+            }
+            previous = character
+        }
+        return raw
     }
 
     private static func hostName(_ raw: String) -> String {
