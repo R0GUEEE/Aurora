@@ -458,6 +458,10 @@ public actor RepositoryClient {
             } else {
                 return (nil, warnings)
             }
+        } catch is CancellationError {
+            // Cancellation is control flow, not a transport failure. Never turn a
+            // cancelled refresh into a successful stale-cache result.
+            return (nil, warnings)
         } catch {
             // A network hiccup with a warm cache should not empty the store.
             if let cached {
