@@ -138,6 +138,15 @@ struct SettingsView: View {
                 get: { store.settings.refreshConcurrency },
                 set: { store.setRefreshConcurrency($0) }
             ), in: 2...12)
+            Stepper("Repository timeout: \(store.settings.repositoryTimeoutSeconds)s", value: Binding(
+                get: { store.settings.repositoryTimeoutSeconds },
+                set: { store.setRepositoryTimeoutSeconds($0) }
+            ), in: 3...60)
+            Toggle("Retry failed repositories during Refresh All", isOn: Binding(
+                get: { store.settings.refreshFailedRepositories },
+                set: { store.setRefreshFailedRepositories($0) }
+            ))
+            .disabled(!store.settings.skipFailedRepositories)
             Stepper("New package window: \(store.settings.newPackageDays) days", value: Binding(
                 get: { store.settings.newPackageDays },
                 set: { store.setNewPackageDays($0) }
@@ -162,7 +171,7 @@ struct SettingsView: View {
         } header: {
             Text("Behavior & Appearance")
         } footer: {
-            Text("Tune refresh parallelism for your device and source count, choose how long packages remain in New, and control Home density. Refreshes use conditional repository metadata when possible.")
+            Text("Tune refresh parallelism and per-request timeout for your device and source count. Failed sources can stay skipped for fast normal refreshes or be retried automatically. You can also choose how long packages remain in New and control Home density.")
         }
     }
 
