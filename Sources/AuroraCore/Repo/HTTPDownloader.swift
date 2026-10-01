@@ -52,6 +52,10 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             return (data, http)
         } catch let error as TransportError {
             throw error
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         } catch {
             throw TransportError.transport(url.absoluteString, underlying: error)
         }
@@ -82,6 +86,10 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             // The delegate owns the temporary file and moves it as it finishes;
             // the URL the async call returns is only a placeholder we ignore.
             (_, response) = try await session.download(for: request, delegate: delegate)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         } catch {
             throw TransportError.transport(url.absoluteString, underlying: error)
         }
