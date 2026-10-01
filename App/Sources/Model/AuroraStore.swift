@@ -497,6 +497,53 @@ final class AuroraStore: ObservableObject {
         combinedIndex.candidates(named: name).first
     }
 
+    /// Newest package versions across enabled repositories. Repositories do not
+    /// have a universal publication-date field, so records with a parseable
+    /// Date/Timestamp/Last-Modified field sort first; otherwise stable index
+    /// arrival order is used as a fallback.
+    func newPackageRecords(limit: Int = 200) -> [PackageRecord] {
+        var best: [String: PackageRecord] = [:]
+        for record in combinedIndex.records {
+            if filtersRootlessOnly && !Self.isCompatible(record) { continue }
+            if let existing = best[record.name] {
+                if DebianVersion.compare(record.version, existing.version) > 0 {
+                    best[record.name] = record
+                }
+            } else {
+                best[record.name] = record
+            }
+        }
+        return best.values.sorted { lhs, rhs in
+            let ld = Self.publishedDate(for: lhs)
+            let rd = Self.publishedDate(for: rhs)
+            if let ld, let rd, ld != rd { return ld > rd }
+            if ld != nil && rd == nil { return true }
+            if ld == nil && rd != nil { return false }
+            let order = lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName)
+            return order == .orderedSame ? lhs.name < rhs.name : order == .orderedAscending
+        }.prefix(limit).map { $0 }
+    }
+
+    static func publishedDate(for record: PackageRecord) -> Date? {
+        let candidates = ["Date", "Timestamp", "Last-Modified", "LastModified"]
+        let iso = ISO8601DateFormatter()
+        let rfc = DateFormatter()
+        rfc.locale = Locale(identifier: "en_US_POSIX")
+        rfc.timeZone = TimeZone(secondsFromGMT: 0)
+        for key in candidates {
+            guard let raw = record.stanza.string(key)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !raw.isEmpty else { continue }
+            if let date = iso.date(from: raw) { return date }
+            if let seconds = TimeInterval(raw) { return Date(timeIntervalSince1970: seconds) }
+            for format in ["EEE, dd MMM yyyy HH:mm:ss zzz", "yyyy-MM-dd HH:mm:ss Z", "yyyy-MM-dd"] {
+                rfc.dateFormat = format
+                if let date = rfc.date(from: raw) { return date }
+            }
+        }
+        return nil
+    }
+
+
     /// The newest package that is strictly newer than `version`, for the Upgrade
     /// action.
     func newestRecord(named name: String, newerThan version: DebianVersion) -> PackageRecord? {
