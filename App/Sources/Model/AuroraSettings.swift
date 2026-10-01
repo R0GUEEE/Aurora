@@ -96,6 +96,8 @@ struct AuroraSettings: Codable, Equatable {
     var depictionPreference: DepictionPreference
     var showPackageIcons: Bool
     var compactPackageRows: Bool
+    var showPackageDescriptions: Bool
+    var skipFailedRepositories: Bool
     var tabs: [AppTab]
 
     init(
@@ -106,6 +108,8 @@ struct AuroraSettings: Codable, Equatable {
         depictionPreference: DepictionPreference = .native,
         showPackageIcons: Bool = true,
         compactPackageRows: Bool = false,
+        showPackageDescriptions: Bool = true,
+        skipFailedRepositories: Bool = true,
         tabs: [AppTab] = AppTab.defaultTabs
     ) {
         self.autoRefreshOnLaunch = autoRefreshOnLaunch
@@ -115,6 +119,8 @@ struct AuroraSettings: Codable, Equatable {
         self.depictionPreference = depictionPreference
         self.showPackageIcons = showPackageIcons
         self.compactPackageRows = compactPackageRows
+        self.showPackageDescriptions = showPackageDescriptions
+        self.skipFailedRepositories = skipFailedRepositories
         self.tabs = Self.sanitizedTabs(tabs)
     }
 
@@ -126,6 +132,8 @@ struct AuroraSettings: Codable, Equatable {
         case depictionPreference
         case showPackageIcons
         case compactPackageRows
+        case showPackageDescriptions
+        case skipFailedRepositories
         case tabs
     }
 
@@ -143,6 +151,8 @@ struct AuroraSettings: Codable, Equatable {
             (try? container.decode(DepictionPreference.self, forKey: .depictionPreference)) ?? .native
         self.showPackageIcons = (try? container.decode(Bool.self, forKey: .showPackageIcons)) ?? true
         self.compactPackageRows = (try? container.decode(Bool.self, forKey: .compactPackageRows)) ?? false
+        self.showPackageDescriptions = (try? container.decode(Bool.self, forKey: .showPackageDescriptions)) ?? true
+        self.skipFailedRepositories = (try? container.decode(Bool.self, forKey: .skipFailedRepositories)) ?? true
         let decodedTabs = (try? container.decode([AppTab].self, forKey: .tabs)) ?? AppTab.defaultTabs
         self.tabs = Self.sanitizedTabs(decodedTabs)
     }
