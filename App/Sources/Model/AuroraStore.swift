@@ -229,41 +229,52 @@ final class AuroraStore: ObservableObject {
     func addSource(urlText: String, suite: String = "./", name: String) -> String? {
         let trimmedURL = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedURL.isEmpty else { return "Enter a repository URL." }
+        guard let link = RepositoryLink.parse(trimmedURL) else {
+            return "\(trimmedURL) is not a usable repository link."
+        }
 
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let host = URL(string: trimmedURL)?.host?.lowercased()
-        // Match Sileo's URL-first model: ordinary jailbreak repos are flat.
-        // Dist metadata stays internal and is synthesized only for known repos.
-        let detectedSuite: String
-        let detectedComponents: [String]
+        var repositoryURL = link.url
+        let host = URL(string: repositoryURL)?.host?.lowercased()
+
+        // Match Sileo's URL-first behavior for normal repos while retaining the
+        // distribution exceptions it applies to known repositories.
+        var detectedSuite = link.suite ?? (suite.isEmpty ? "./" : suite)
+        var detectedComponents = link.components
+        var detectedArchitectures = link.architectures
+
         if host == "apt.procurs.us" {
-            // Keep the existing Procursus suite when editing/re-adding it. Fresh
-            // installs use SourceStore's device/bootstrap default.
-            detectedSuite = sources.first(where: { $0.normalizedURL.lowercased() == "https://apt.procurs.us" })?.suite
-                ?? SourceStore.builtInSources.first(where: { $0.normalizedURL.lowercased() == "https://apt.procurs.us" })?.suite
+            repositoryURL = "https://apt.procurs.us"
+            detectedSuite = sources.first(where: { $0.normalizedURL.lowercased() == repositoryURL })?.suite
+                ?? SourceStore.builtInSources.first(where: { $0.normalizedURL.lowercased() == repositoryURL })?.suite
                 ?? "iphoneos-arm64/1800"
             detectedComponents = ["main"]
+            detectedArchitectures = []
         } else if ["apt.bigboss.org", "apt.thebigboss.org", "thebigboss.org", "bigboss.org"].contains(host ?? "") {
+            // Sileo rewrites BigBoss aliases to its canonical APT endpoint.
+            repositoryURL = "http://apt.thebigboss.org/repofiles/cydia"
             detectedSuite = "stable"
             detectedComponents = ["main"]
-        } else {
+            detectedArchitectures = []
+        } else if link.suite == nil {
+            // Like Sileo/Zebra, a plain repository URL means a flat source.
             detectedSuite = "./"
             detectedComponents = []
         }
+
         let candidate = RepositorySource(
-            name: trimmedName.isEmpty ? Self.derivedName(for: trimmedURL) : trimmedName,
-            url: trimmedURL,
+            name: trimmedName.isEmpty ? Self.derivedName(for: repositoryURL) : trimmedName,
+            url: repositoryURL,
             suite: detectedSuite,
-            components: detectedComponents
+            components: detectedComponents,
+            architectures: detectedArchitectures
         )
         guard candidate.isValid else {
-            return "\(trimmedURL) is not a usable repository URL: it needs a scheme (http:// or https://) and a host."
+            return "\(trimmedURL) is not a usable repository URL."
         }
 
         var list = RepositoryList(sources: sources)
         do {
-            // RepositoryList rejects a duplicate before it can double every
-            // package in the store.
             try list.add(candidate)
         } catch {
             return AuroraFormat.message(for: error)
@@ -312,8 +323,17 @@ final class AuroraStore: ObservableObject {
     }
 
     func sourceID(matchingURL url: String) -> UUID? {
-        let normalized = RepositorySource(name: "", url: url).normalizedURL
-        return sources.last(where: { $0.normalizedURL.caseInsensitiveCompare(normalized) == .orderedSame })?.id
+        guard let link = RepositoryLink.parse(url) else { return nil }
+        var normalized = link.url
+        let host = URL(string: normalized)?.host?.lowercased()
+        if host == "apt.procurs.us" {
+            normalized = "https://apt.procurs.us"
+        } else if ["apt.bigboss.org", "apt.thebigboss.org", "thebigboss.org", "bigboss.org"].contains(host ?? "") {
+            normalized = "http://apt.thebigboss.org/repofiles/cydia"
+        }
+        return sources.last(where: {
+            $0.normalizedURL.caseInsensitiveCompare(normalized) == .orderedSame
+        })?.id
     }
 
     func removeSource(id: UUID) {
@@ -337,39 +357,53 @@ final class AuroraStore: ObservableObject {
         architectures: [String]
     ) -> String? {
         guard let position = sources.firstIndex(where: { $0.id == id }) else { return "Repository not found." }
-        var candidate = sources[position]
+        guard let link = RepositoryLink.parse(url) else { return "Enter a valid repository URL." }
+
+        let old = sources[position]
+        var candidate = old
+        candidate.url = link.url
         candidate.name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? Self.derivedName(for: url)
+            ? Self.derivedName(for: candidate.url)
             : name.trimmingCharacters(in: .whitespacesAndNewlines)
-        candidate.url = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        let oldHost = URL(string: sources[position].normalizedURL)?.host?.lowercased()
+
+        let layoutWasEdited = suite != old.suite
+            || components != old.components
+            || architectures != old.architectures
+        let urlWasEdited = old.normalizedURL.caseInsensitiveCompare(candidate.normalizedURL) != .orderedSame
         let newHost = URL(string: candidate.normalizedURL)?.host?.lowercased()
-        let layoutWasEdited = suite != candidate.suite || components != candidate.components || architectures != candidate.architectures
-        if oldHost != newHost && !layoutWasEdited {
-            // URL-only editing must not carry hidden layout metadata from the
-            // previous host (for example Procursus suite -> an ordinary flat repo).
+
+        if urlWasEdited && !layoutWasEdited {
             if newHost == "apt.procurs.us" {
-                candidate.suite = SourceStore.builtInSources.first(where: { $0.normalizedURL.lowercased() == "https://apt.procurs.us" })?.suite ?? "iphoneos-arm64/1800"
+                candidate.url = "https://apt.procurs.us"
+                candidate.suite = SourceStore.builtInSources.first(where: {
+                    $0.normalizedURL.lowercased() == "https://apt.procurs.us"
+                })?.suite ?? "iphoneos-arm64/1800"
                 candidate.components = ["main"]
+                candidate.architectures = []
             } else if ["apt.bigboss.org", "apt.thebigboss.org", "thebigboss.org", "bigboss.org"].contains(newHost ?? "") {
+                candidate.url = "http://apt.thebigboss.org/repofiles/cydia"
                 candidate.suite = "stable"
                 candidate.components = ["main"]
+                candidate.architectures = []
             } else {
-                candidate.suite = "./"
-                candidate.components = []
+                candidate.suite = link.suite ?? "./"
+                candidate.components = link.suite == nil ? [] : (link.components.isEmpty ? ["main"] : link.components)
+                candidate.architectures = link.architectures
             }
-            candidate.architectures = []
         } else {
             candidate.suite = suite.trimmingCharacters(in: .whitespacesAndNewlines)
             candidate.components = components
             candidate.architectures = architectures
         }
+
         guard candidate.isValid else { return "Enter a valid http:// or https:// repository URL." }
         let duplicate = sources.contains {
-            $0.id != id && $0.normalizedURL.caseInsensitiveCompare(candidate.normalizedURL) == .orderedSame && $0.suite == candidate.suite
+            $0.id != id
+                && $0.normalizedURL.caseInsensitiveCompare(candidate.normalizedURL) == .orderedSame
+                && $0.suite == candidate.suite
         }
         guard !duplicate else { return "\(candidate.normalizedURL) is already configured." }
-        let old = sources[position]
+
         let indexLocationChanged = old.normalizedURL != candidate.normalizedURL
             || old.suite != candidate.suite
             || old.components != candidate.components
