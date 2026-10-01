@@ -196,23 +196,12 @@ struct SearchView: View {
             architecture: architecture,
             installedOnly: installedOnly,
             updatesOnly: updatesOnly,
-            compatibleOnly: compatibleOnly
+            compatibleOnly: compatibleOnly,
+            bookmarkedOnly: bookmarkedOnly,
+            verifiedSourcesOnly: verifiedSourcesOnly,
+            depictionOnly: depictionOnly,
+            commercial: commercial == .all ? nil : commercial == .commercial
         )
-
-        values = values.filter { record in
-            if bookmarkedOnly && !store.isBookmarked(record.name) { return false }
-            if depictionOnly && record.depictionURL == nil { return false }
-            switch commercial {
-            case .all:
-                break
-            case .free:
-                if record.commercial { return false }
-            case .commercial:
-                if !record.commercial { return false }
-            }
-            if verifiedSourcesOnly && !isFromVerifiedSource(record) { return false }
-            return true
-        }
 
         switch sort {
         case .relevance:
@@ -243,14 +232,6 @@ struct SearchView: View {
         return values
     }
 
-    private func isFromVerifiedSource(_ record: PackageRecord) -> Bool {
-        guard let origin = record.origin,
-              let source = store.sources.first(where: {
-                  $0.normalizedURL.caseInsensitiveCompare(origin.url) == .orderedSame
-                      && $0.suite == origin.suite
-              }) else { return false }
-        return store.signatureStatus[source.id]?.isVerified == true
-    }
 
     private var hasFilters: Bool {
         section != nil
