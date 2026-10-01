@@ -1,4 +1,5 @@
 import Foundation
+import AuroraCore
 
 struct PackageActivity: Codable, Identifiable, Hashable {
     enum Kind: String, Codable { case install, reinstall, upgrade, downgrade, remove, purge }
