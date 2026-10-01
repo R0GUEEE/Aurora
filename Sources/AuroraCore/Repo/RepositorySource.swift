@@ -31,6 +31,9 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
     /// Consecutive refresh failures. Reset to zero after a successful refresh.
     /// Optional so source files written by older Aurora builds decode unchanged.
     public var consecutiveFailures: Int?
+    /// Source-list file this entry came from. Aurora writes only entries owned by
+    /// its managed `sileo.sources` file and leaves other APT source files intact.
+    public var sourceFile: String?
 
     public init(
         id: UUID = UUID(),
@@ -46,7 +49,8 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
         isBuiltIn: Bool = false,
         lastRefreshed: Date? = nil,
         lastError: String? = nil,
-        consecutiveFailures: Int? = nil
+        consecutiveFailures: Int? = nil,
+        sourceFile: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -62,6 +66,7 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
         self.lastRefreshed = lastRefreshed
         self.lastError = lastError
         self.consecutiveFailures = consecutiveFailures
+        self.sourceFile = sourceFile
     }
 
     /// Normalised so `https://a.com/` and `https://a.com` cannot coexist as two
