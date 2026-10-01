@@ -98,6 +98,12 @@ public struct RepositoryRefresh: Sendable {
 /// fetch the signed `Release`, use *its* hashes to decide which `Packages` file to
 /// take, verify size and digest **before** parsing, and only then trust a single
 /// byte of package metadata.
+public struct RepositoryProbeResult: Sendable {
+    public let packageCount: Int
+    public let repositoryName: String?
+    public let warnings: [String]
+}
+
 public actor RepositoryClient {
 
     private let environment: JailbreakEnvironment
@@ -123,6 +129,19 @@ public actor RepositoryClient {
         self.policy = policy
         let directory = cacheDirectory ?? (environment.cacheDirectory + "/indexes")
         self.cache = policy.useCache ? IndexCache(directory: directory) : nil
+    }
+
+    /// Lightweight validation used by URL-only source onboarding. It reuses the
+    /// exact refresh scanner, so "valid" means Aurora can actually parse packages
+    /// rather than merely receiving HTTP 200 from the host.
+    public func probe(_ source: RepositorySource) async throws -> RepositoryProbeResult {
+        let result = try await refresh(source)
+        let name = result.release?.origin?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return RepositoryProbeResult(
+            packageCount: result.records.count,
+            repositoryName: (name?.isEmpty == false) ? name : nil,
+            warnings: result.warnings
+        )
     }
 
     /// Absolute URL of a package inside the repository that published it.
