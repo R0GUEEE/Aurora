@@ -326,33 +326,49 @@ struct TabCustomizationView: View {
     @ObservedObject var store: AuroraStore
 
     private var selected: [AppTab] { store.settings.tabs }
-    private var alternatives: [AppTab] { AppTab.allCases.filter { !selected.contains($0) } }
+    private var alternatives: [AppTab] { AppTab.allCases.filter { $0 != .settings && !selected.contains($0) } }
 
     var body: some View {
         List {
             Section {
                 ForEach(selected) { tab in
-                    Label(tab.label, systemImage: tab.symbol)
-                        .swipeActions {
-                            if selected.count > 1 {
-                                Button(role: .destructive) { remove(tab) } label: {
-                                    Label("Remove", systemImage: "minus.circle")
+                    HStack {
+                        Label(tab.label, systemImage: tab.symbol)
+                        Spacer()
+                        Menu {
+                            ForEach(alternatives) { replacement in
+                                Button {
+                                    replace(tab, with: replacement)
+                                } label: {
+                                    Label(replacement.label, systemImage: replacement.symbol)
                                 }
                             }
+                            Divider()
+                            Button(role: .destructive) { remove(tab) } label: {
+                                Label("Remove Tab", systemImage: "minus.circle")
+                            }
+                            .disabled(selected.count <= 1)
+                        } label: {
+                            Label("Replace", systemImage: "arrow.left.arrow.right")
+                                .labelStyle(.iconOnly)
                         }
+                    }
+                    .swipeActions {
+                        if selected.count > 1 {
+                            Button(role: .destructive) { remove(tab) } label: {
+                                Label("Remove", systemImage: "minus.circle")
+                            }
+                        }
+                    }
                 }
                 .onMove(perform: move)
             } header: {
                 Text("Tab Bar")
             } footer: {
-                Text("Drag to rearrange. Aurora keeps at least one destination and shows at most five tabs.")
+                Text("Drag to reorder, tap the arrows to replace a tab immediately, or swipe to remove it. Up to five destinations can be selected.")
             }
 
             Section {
-                if alternatives.isEmpty {
-                    Text("Every destination is already selected.")
-                        .foregroundColor(.secondary)
-                }
                 ForEach(alternatives) { tab in
                     Button { add(tab) } label: {
                         HStack {
@@ -364,13 +380,9 @@ struct TabCustomizationView: View {
                     .disabled(selected.count >= 5)
                 }
             } header: {
-                Text("Alternative Tabs")
+                Text("Available Destinations")
             } footer: {
-                if selected.count >= 5 {
-                    Text("Remove one of the current tabs before adding another.")
-                } else {
-                    Text("Available: Browse, New, Installed, Library, Sources, Search, Queue, and Settings.")
-                }
+                Text(selected.count >= 5 ? "Replace or remove a current tab to make room." : "Settings is always available from the Home page and does not use a tab slot.")
             }
 
             Section {
@@ -394,11 +406,18 @@ struct TabCustomizationView: View {
     }
 
     private func add(_ tab: AppTab) {
-        guard selected.count < 5, !selected.contains(tab) else { return }
+        guard tab != .settings, selected.count < 5, !selected.contains(tab) else { return }
         store.setTabs(selected + [tab])
     }
-}
 
+    private func replace(_ old: AppTab, with new: AppTab) {
+        guard new != .settings, !selected.contains(new),
+              let index = selected.firstIndex(of: old) else { return }
+        var tabs = selected
+        tabs[index] = new
+        store.setTabs(tabs)
+    }
+}
 
 @MainActor
 struct BackupRestoreView: View {
