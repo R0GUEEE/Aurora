@@ -188,6 +188,8 @@ struct RepositoryDetailView: View {
     let sourceID: UUID
     @State private var query = ""
     @State private var confirmingRemoval = false
+    @State private var editingSource = false
+    @State private var confirmingReset = false
 
     private var source: RepositorySource? {
         store.sources.first { $0.id == sourceID }
@@ -288,11 +290,24 @@ struct RepositoryDetailView: View {
                         } label: {
                             Label("Copy Repository URL", systemImage: "doc.on.doc")
                         }
+                        Button { editingSource = true } label: {
+                            Label("Edit Repository", systemImage: "pencil")
+                        }
                         Button {
                             store.setSourceEnabled(id: sourceID, enabled: !source.isEnabled)
                         } label: {
                             Label(source.isEnabled ? "Disable Repository" : "Enable Repository",
                                   systemImage: source.isEnabled ? "pause.circle" : "play.circle")
+                        }
+                        if store.indexErrors[sourceID] != nil {
+                            Button {
+                                store.clearSourceError(id: sourceID)
+                            } label: {
+                                Label("Clear Error State", systemImage: "checkmark.circle")
+                            }
+                        }
+                        Button { confirmingReset = true } label: {
+                            Label("Reset Repository Data", systemImage: "arrow.counterclockwise")
                         }
                         if !source.isBuiltIn {
                             Divider()
@@ -316,6 +331,17 @@ struct RepositoryDetailView: View {
                 .disabled(store.refreshState.isRefreshing || source == nil)
                 .accessibilityLabel("Refresh repository")
             }
+        }
+        .sheet(isPresented: $editingSource) {
+            if let source {
+                EditSourceSheet(store: store, source: source)
+            }
+        }
+        .confirmationDialog("Reset repository data?", isPresented: $confirmingReset, titleVisibility: .visible) {
+            Button("Reset Repository", role: .destructive) { store.resetSourceData(id: sourceID) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Clears Aurora's loaded package index, warnings, signature state, error and refresh timestamp for this source. Installed packages are untouched.")
         }
         .confirmationDialog("Remove this repository?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
             Button("Remove Repository", role: .destructive) { store.removeSource(id: sourceID) }
@@ -515,6 +541,81 @@ struct AddSourceSheet: View {
 }
 
 
+
+@MainActor
+struct EditSourceSheet: View {
+    @ObservedObject var store: AuroraStore
+    let source: RepositorySource
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var url: String
+    @State private var suite: String
+    @State private var components: String
+    @State private var architectures: String
+    @State private var errorMessage: String?
+
+    init(store: AuroraStore, source: RepositorySource) {
+        self.store = store
+        self.source = source
+        _name = State(initialValue: source.name)
+        _url = State(initialValue: source.url)
+        _suite = State(initialValue: source.suite)
+        _components = State(initialValue: source.components.joined(separator: " "))
+        _architectures = State(initialValue: source.architectures.joined(separator: " "))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Identity") {
+                    TextField("Name", text: $name)
+                    TextField("Repository URL", text: $url)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                }
+                Section("APT Layout") {
+                    TextField("Suite (./ for flat)", text: $suite)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                    TextField("Components (space separated)", text: $components)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                    TextField("Architectures (blank = device defaults)", text: $architectures)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                }
+                if let errorMessage {
+                    Section { Text(errorMessage).foregroundColor(.red).font(.footnote) }
+                }
+            }
+            .navigationTitle("Edit Repository")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        let split: (String) -> [String] = {
+                            $0.split(whereSeparator: { $0.isWhitespace || $0 == "," }).map(String.init)
+                        }
+                        if let error = store.updateSource(
+                            id: source.id,
+                            name: name,
+                            url: url,
+                            suite: suite,
+                            components: split(components),
+                            architectures: split(architectures)
+                        ) {
+                            errorMessage = error
+                        } else {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @MainActor
 struct IOSRepoUpdatesBrowser: View {
