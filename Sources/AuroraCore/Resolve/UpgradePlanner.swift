@@ -81,6 +81,11 @@ public struct UpgradePlanner: Sendable {
                 continue
             }
 
+            if let allowed = policy.packagePolicy.requiredVersion(for: name), allowed != entry.version.raw {
+                pinnedBackwards.append((name: name, installed: entry.version.raw, allowed: allowed))
+                continue
+            }
+
             let comparison = DebianVersion.compare(candidate.version, entry.version)
             if comparison > 0 {
                 if policy.packagePolicy.isHeld(name), !includeHeld {
