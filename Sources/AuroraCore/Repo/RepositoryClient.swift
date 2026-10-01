@@ -357,7 +357,16 @@ public actor RepositoryClient {
                     // never generate a network request.
                     var expected: ReleaseFile.Checksum?
                     if let release {
-                        expected = release.checksum(forPath: path)
+                        let checksumPath: String
+                        if source.isFlat {
+                            let prefix = source.flatPathPrefix
+                            checksumPath = prefix.isEmpty
+                                ? path
+                                : String(path.dropFirst(min(path.count, prefix.count + 1)))
+                        } else {
+                            checksumPath = path
+                        }
+                        expected = release.checksum(forPath: checksumPath)
                         if expected == nil { continue }
                     }
 
