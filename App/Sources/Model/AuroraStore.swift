@@ -857,6 +857,16 @@ final class AuroraStore: ObservableObject {
                 changed = true
             }
         }
+        // Keep discovery history bounded. Entries for packages that vanished
+        // from every configured repository and are older than six months no
+        // longer contribute to New, so retaining them forever only bloats state.
+        let active = Set(records.map { firstSeenKey(for: $0) })
+        let cutoff = Calendar.current.date(byAdding: .month, value: -6, to: now) ?? .distantPast
+        let stale = userLibrary.firstSeen.filter { !active.contains($0.key) && $0.value < cutoff }.map(\.key)
+        if !stale.isEmpty {
+            for key in stale { userLibrary.firstSeen[key] = nil }
+            changed = true
+        }
         if changed { persistUserLibrary() }
     }
 
