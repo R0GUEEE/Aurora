@@ -100,6 +100,15 @@ final class RepositorySecurityTests: XCTestCase {
         }
     }
 
+    func testBadSignatureTakesPrecedenceOverRuntimeFailure() {
+        let status = SignatureVerifier.failedVerificationStatus(
+            "gpgv: BAD signature from \"dyld\"\ndyld: Library not loaded: libgcrypt.20.dylib"
+        )
+        guard case .rejected = status else {
+            return XCTFail("Expected bad signature to remain rejected, got \(status)")
+        }
+    }
+
     func testBrokenVerifierRuntimeCanBeIgnoredInCompatibilityMode() {
         let status = SignatureVerifier.failedVerificationStatus(
             "dyld: Symbol not found: _gpg_error_check_version\nExpected in: /var/jb/usr/lib/libgpg-error.0.dylib"
