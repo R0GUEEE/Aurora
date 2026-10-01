@@ -27,6 +27,7 @@ struct RootView: View {
     enum Tab: Hashable {
         case browse
         case installed
+        case library
         case sources
         case search
         case queue
@@ -49,6 +50,12 @@ struct RootView: View {
                 store.newestRecord(named: package.name, newerThan: package.version) != nil
             }.count)
             .tag(Tab.installed)
+
+            NavigationStack {
+                LibraryView(store: store)
+            }
+            .tabItem { Label("Library", systemImage: "bookmark") }
+            .tag(Tab.library)
 
             NavigationStack {
                 SourcesListView(store: store)
