@@ -4,6 +4,9 @@ import Foundation
 public enum SignatureStatus: Sendable, Equatable {
     case verified(fingerprint: String?)
     case unsigned
+    /// The metadata is signed, but the signing key is not in Aurora/device trust stores.
+    case untrusted(reason: String)
+    /// The signature is present but cryptographically invalid or malformed.
     case rejected(reason: String)
     /// No verifier or no keyring is available on this device.
     case unavailable(reason: String)
@@ -19,6 +22,7 @@ public enum SignatureStatus: Sendable, Equatable {
         switch self {
         case .verified(let fingerprint): return fingerprint.map { "Signed by \($0)" } ?? "Signed"
         case .unsigned: return "Unsigned"
+        case .untrusted(let reason): return "Untrusted signing key: \(reason)"
         case .rejected(let reason): return "Signature rejected: \(reason)"
         case .unavailable(let reason): return "Signature not checked: \(reason)"
         }
@@ -156,10 +160,31 @@ public struct SignatureVerifier: Sendable {
             }
             let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
             let reason = trimmed.split(separator: "\n").last.map(String.init) ?? "unknown error"
+            if isUnknownSigningKey(output) {
+                return .untrusted(reason: reason)
+            }
             return .rejected(reason: reason)
         } catch {
             return .unavailable(reason: "\(error)")
         }
+    }
+
+    private func isUnknownSigningKey(_ output: String) -> Bool {
+        let lower = output.lowercased()
+        let markers = [
+            "no public key",
+            "can't check signature",
+            "cannot check signature",
+            "unknown public key",
+            "unknown signing key",
+            "public key not found",
+            "key not found",
+            "missing public key",
+            "missing key",
+            "no matching key",
+            "no suitable key",
+        ]
+        return markers.contains { lower.contains($0) }
     }
 
     private var childEnvironment: [String: String] {
