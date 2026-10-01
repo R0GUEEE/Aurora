@@ -79,7 +79,7 @@ struct SearchView: View {
             } else if results.isEmpty {
                 Section {
                     EmptyMessage(symbol: "questionmark.circle", title: "No matches",
-                                 message: "No loaded package matches “(query)” with the current filters.")
+                                 message: "No loaded package matches “\(query)” with the current filters.")
                 }
             } else {
                 Section {
@@ -116,7 +116,7 @@ struct SearchView: View {
                         }
                     }
                 } header: {
-                    Text("(results.count) result(results.count == 1 ? "" : "s")")
+                    Text("\(results.count) result\(results.count == 1 ? "" : "s")")
                 }
             }
         }
@@ -280,7 +280,7 @@ struct SearchView: View {
         if let sourceID, let source = store.sources.first(where: { $0.id == sourceID }) {
             labels.append(source.name)
         }
-        if sort != .relevance { labels.append("Sort: (sort.rawValue)") }
+        if sort != .relevance { labels.append("Sort: \(sort.rawValue)") }
         return labels
     }
 
