@@ -1170,8 +1170,10 @@ final class AuroraStore: ObservableObject {
         URLCache.shared.removeAllCachedResponses()
 
         let manager = FileManager.default
+        // LocalPackages contains security-scoped document imports copied into
+        // Aurora's sandbox. Queue entries can still reference those files, so it
+        // is staged transaction data rather than disposable cache.
         let directories = [
-            environment.cacheDirectory,
             environment.cacheDirectory + "/indexes",
             environment.cacheDirectory + "/packages",
         ]
