@@ -18,7 +18,9 @@ struct BrowseView: View {
     @State private var selectedSection = "All"
 
     var body: some View {
-        List {
+        // Evaluate the filtered section tree once per body render.
+        let visibleSections = filteredSections
+        return List {
             if store.sections.isEmpty {
                 Section {
                     if store.refreshState.isRefreshing {
@@ -40,7 +42,7 @@ struct BrowseView: View {
                 }
             }
 
-            ForEach(filteredSections) { section in
+            ForEach(visibleSections) { section in
                 Section {
                     ForEach(section.records) { record in
                         NavigationLink(value: record) {
@@ -106,7 +108,7 @@ struct BrowseView: View {
         }
         .overlay(alignment: .bottom) {
             if !store.sections.isEmpty {
-                Text(footerText)
+                Text(footerText(for: visibleSections))
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 12)
@@ -118,7 +120,13 @@ struct BrowseView: View {
     }
 
     private var filteredSections: [PackageSection] {
-        store.browseRecords(matching: query).compactMap { section in
+        let hasQuery = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if !hasQuery && !installedOnly && !updatesOnly && !compatibleOnly
+            && selectedArchitecture == "All" && selectedSection == "All" && sort == .name {
+            return store.sections
+        }
+
+        return store.browseRecords(matching: query).compactMap { section in
             if selectedSection != "All" && section.name != selectedSection { return nil }
             var records = section.records.filter { record in
                 if installedOnly && !store.isInstalled(record.name) { return false }
@@ -130,14 +138,16 @@ struct BrowseView: View {
                 if selectedArchitecture != "All" && record.architecture != selectedArchitecture { return false }
                 return true
             }
-            records.sort { lhs, rhs in
-                switch sort {
-                case .name:
-                    return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-                case .version:
-                    return DebianVersion.compare(lhs.version, rhs.version) > 0
-                case .size:
-                    return (lhs.downloadSize ?? 0) > (rhs.downloadSize ?? 0)
+            if sort != .name {
+                records.sort { lhs, rhs in
+                    switch sort {
+                    case .name:
+                        return false
+                    case .version:
+                        return DebianVersion.compare(lhs.version, rhs.version) > 0
+                    case .size:
+                        return (lhs.downloadSize ?? 0) > (rhs.downloadSize ?? 0)
+                    }
                 }
             }
             return records.isEmpty ? nil : PackageSection(name: section.name, records: records)
@@ -146,7 +156,7 @@ struct BrowseView: View {
 
 
     private var architectures: [String] {
-        ["All"] + Array(Set(store.sections.flatMap { $0.records.map(\.architecture) })).sorted()
+        ["All"] + store.architectureNames
     }
 
     private var sections: [String] {
@@ -165,8 +175,8 @@ struct BrowseView: View {
         selectedSection = "All"
     }
 
-    private var footerText: String {
-        let shown = filteredSections.reduce(0) { $0 + $1.records.count }
+    private func footerText(for visibleSections: [PackageSection]) -> String {
+        let shown = visibleSections.reduce(0) { $0 + $1.records.count }
         if shown == store.totalPackageCount {
             return "\(store.totalPackageCount) packages"
         }
