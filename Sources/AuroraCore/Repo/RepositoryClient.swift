@@ -200,10 +200,19 @@ public actor RepositoryClient {
             && resolved.scheme?.lowercased() == base.scheme?.lowercased()
         if sameOrigin { return resolved }
 
-        guard scheme == "https",
-              let digest = record.bestDigest,
-              !digest.algorithm.isBroken else { return nil }
+        guard scheme == "https", hasValidStrongDigest(record) else { return nil }
         return resolved
+    }
+
+    private static func hasValidStrongDigest(_ record: PackageRecord) -> Bool {
+        guard let digest = record.bestDigest, !digest.algorithm.isBroken else { return false }
+        let expectedLength: Int
+        switch digest.algorithm {
+        case .sha256: expectedLength = 64
+        case .sha512: expectedLength = 128
+        case .sha1, .md5: return false
+        }
+        return digest.hex.count == expectedLength && digest.hex.allSatisfy(\.isHexDigit)
     }
 
     private func url(_ source: RepositorySource, path: String) -> URL? {
@@ -682,7 +691,7 @@ public actor RepositoryClient {
             return destination
         }
 
-        let strongDigest = record.bestDigest.map { !$0.algorithm.isBroken } ?? false
+        let strongDigest = Self.hasValidStrongDigest(record)
         try await downloader.download(
             from: remote,
             to: destination,
