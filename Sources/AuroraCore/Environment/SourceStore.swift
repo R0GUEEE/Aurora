@@ -87,11 +87,15 @@ public struct SourceStore: Sendable {
 
         let body = list.sources.map { source -> String in
             let components = source.components.joined(separator: " ")
+            let architectures = source.architectures.isEmpty
+                ? ""
+                : "\nArchitectures: \(source.architectures.joined(separator: " "))"
+            let enabled = source.isEnabled ? "" : "\nEnabled: no"
             return """
             Types: deb
             URIs: \(source.normalizedURL)/
             Suites: \(source.suite.isEmpty ? "./" : source.suite)
-            Components: \(components)
+            Components: \(components)\(architectures)\(enabled)
             """
         }.joined(separator: "\n\n") + (list.sources.isEmpty ? "" : "\n")
 
@@ -116,31 +120,7 @@ public struct SourceStore: Sendable {
     }
 
     private func parseDeb822(_ text: String) -> [RepositorySource] {
-        text.replacingOccurrences(of: "\r\n", with: "\n")
-            .components(separatedBy: "\n\n")
-            .compactMap { stanza in
-                var fields: [String: String] = [:]
-                for rawLine in stanza.components(separatedBy: "\n") {
-                    let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !line.isEmpty, !line.hasPrefix("#"), let colon = line.firstIndex(of: ":") else { continue }
-                    let key = String(line[..<colon]).lowercased()
-                    fields[key] = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-                }
-                let types = fields["types"]?.split(whereSeparator: \.isWhitespace).map(String.init) ?? []
-                guard types.contains("deb"), let uris = fields["uris"], !uris.isEmpty else { return nil }
-                let url = uris.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? uris
-                let suite = fields["suites"]?.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? "./"
-                let components = fields["components"]?.split(whereSeparator: \.isWhitespace).map(String.init) ?? []
-                let architectures = fields["architectures"]?.split(whereSeparator: \.isWhitespace).map(String.init) ?? []
-                let host = URL(string: url)?.host ?? url
-                return RepositorySource(
-                    name: host,
-                    url: url,
-                    suite: suite.isEmpty ? "./" : suite,
-                    components: components,
-                    architectures: architectures
-                )
-            }
+        SourceInterchange.parse(text)
     }
 
     private func applyState(to sources: [RepositorySource]) -> [RepositorySource] {

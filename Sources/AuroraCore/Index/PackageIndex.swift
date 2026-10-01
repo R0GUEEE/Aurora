@@ -210,13 +210,18 @@ public struct PackageIndex: Sendable {
     // MARK: - Search and browsing
 
     /// Substring search over the fields a user actually recognises.
-    public func search(_ query: String, section: String? = nil, limit: Int = 200) -> [PackageRecord] {
+    public func search(
+        _ query: String,
+        section: String? = nil,
+        limit: Int = 200,
+        matching predicate: (PackageRecord) -> Bool = { _ in true }
+    ) -> [PackageRecord] {
         guard limit > 0 else { return [] }
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         var results: [PackageRecord] = []
         for (index, record) in records.enumerated() {
             if let section, !section.isEmpty, record.section != section { continue }
-            if needle.isEmpty || normalizedSearchText[index].contains(needle) {
+            if (needle.isEmpty || normalizedSearchText[index].contains(needle)) && predicate(record) {
                 results.append(record)
             }
         }

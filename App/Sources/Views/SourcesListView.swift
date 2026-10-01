@@ -603,6 +603,9 @@ struct EditSourceSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var url: String
+    @State private var suite: String
+    @State private var components: String
+    @State private var architectures: String
     @State private var errorMessage: String?
 
     init(store: AuroraStore, source: RepositorySource) {
@@ -610,6 +613,9 @@ struct EditSourceSheet: View {
         self.source = source
         _name = State(initialValue: source.name)
         _url = State(initialValue: source.url)
+        _suite = State(initialValue: source.suite)
+        _components = State(initialValue: source.components.joined(separator: " "))
+        _architectures = State(initialValue: source.architectures.joined(separator: " "))
     }
 
     var body: some View {
@@ -621,6 +627,21 @@ struct EditSourceSheet: View {
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
+                }
+                Section {
+                    TextField("Suite (./ for a flat repository)", text: $suite)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                    TextField("Components (space separated)", text: $components)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                    TextField("Architectures (optional)", text: $architectures)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                } header: {
+                    Text("Package Index")
+                } footer: {
+                    Text("Use ./ and no components for a flat repository. Distribution repositories usually use a suite such as stable and a component such as main. Changing the URL alone selects defaults for the new host.")
                 }
                 if let errorMessage {
                     Section { Text(errorMessage).foregroundColor(.red).font(.footnote) }
@@ -636,9 +657,9 @@ struct EditSourceSheet: View {
                             id: source.id,
                             name: name,
                             url: url,
-                            suite: source.suite,
-                            components: source.components,
-                            architectures: source.architectures
+                            suite: suite,
+                            components: components.split(whereSeparator: \.isWhitespace).map(String.init),
+                            architectures: architectures.split(whereSeparator: \.isWhitespace).map(String.init)
                         ) {
                             errorMessage = error
                         } else {
@@ -776,7 +797,7 @@ struct ImportSourcesSheet: View {
                 } header: {
                     Text("Sources")
                 } footer: {
-                    Text("Paste repository URLs or APT lines such as: deb https://repo.example stable main")
+                    Text("Paste repository URLs, APT deb lines, or Sileo deb822 source blocks (Types, URIs, Suites, Components).")
                 }
                 if let result {
                     Section { Text(result).font(.footnote).foregroundColor(.secondary) }

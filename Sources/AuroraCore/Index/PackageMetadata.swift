@@ -97,41 +97,97 @@ private struct VersionNumber: Comparable {
     }
 }
 
-/// Import/export helpers compatible with newline URL lists and classic APT source lines.
+/// Import/export helpers compatible with URL lists, classic APT lines and Sileo's
+/// deb822 `sileo.sources` format.
 public enum SourceInterchange {
     public static func parse(_ text: String) -> [RepositorySource] {
         var result: [RepositorySource] = []
         var seen: Set<String> = []
 
-        for rawLine in text.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
-            let fields = line.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-            let source: RepositorySource?
-
-            if fields.first?.lowercased() == "deb", fields.count >= 2 {
-                let url = fields[1]
-                let suite = fields.count >= 3 ? fields[2] : "./"
-                let components = fields.count >= 4 ? Array(fields.dropFirst(3)) : ["main"]
-                source = RepositorySource(name: hostName(url), url: url, suite: suite, components: components)
-            } else if line.hasPrefix("http://") || line.hasPrefix("https://") {
-                source = RepositorySource(name: hostName(line), url: line, suite: "./")
-            } else {
-                source = nil
-            }
-
-            guard let source, source.isValid else { continue }
+        func append(_ source: RepositorySource) {
+            guard source.isValid else { return }
             let key = "\(source.normalizedURL.lowercased())|\(source.suite)"
             if seen.insert(key).inserted { result.append(source) }
+        }
+
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        for block in normalized.components(separatedBy: "\n\n") {
+            let stanzas = ControlParser.parse(block)
+            if let stanza = stanzas.first, let uris = stanza.string("URIs"),
+               stanza.string("Types")?.split(whereSeparator: \.isWhitespace).contains(where: { $0.lowercased() == "deb" }) == true {
+                let urls = uris.split(whereSeparator: \.isWhitespace).map(String.init)
+                let suites = (stanza.string("Suites") ?? "./").split(whereSeparator: \.isWhitespace).map(String.init)
+                let components = (stanza.string("Components") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+                let architectures = (stanza.string("Architectures") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+                let enabled = stanza.string("Enabled")?.lowercased() != "no"
+                for url in urls {
+                    for suite in suites {
+                        append(RepositorySource(
+                            name: hostName(url), url: url, suite: suite,
+                            components: components, architectures: architectures,
+                            isEnabled: enabled
+                        ))
+                    }
+                }
+                continue
+            }
+
+            for rawLine in block.components(separatedBy: .newlines) {
+                let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+                let fields = line.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+                let source: RepositorySource?
+
+                if fields.first?.lowercased() == "deb", fields.count >= 2 {
+                    let urlIndex = fields[1].hasPrefix("[")
+                        ? (fields[1...].firstIndex(where: { $0.hasSuffix("]") }).map { $0 + 1 } ?? fields.count)
+                        : 1
+                    if urlIndex < fields.count {
+                        let url = fields[urlIndex]
+                        let suite = fields.count > urlIndex + 1 ? fields[urlIndex + 1] : "./"
+                        let components = fields.count > urlIndex + 2 ? Array(fields.dropFirst(urlIndex + 2)) : []
+                        let options = fields[1..<urlIndex].joined(separator: " ")
+                        let architectures = options.split(whereSeparator: \.isWhitespace)
+                            .first(where: { $0.hasPrefix("arch=") })
+                            .map { String($0.dropFirst(5)).trimmingCharacters(in: CharacterSet(charactersIn: "]"))
+                                .split(separator: ",").map(String.init) } ?? []
+                        source = RepositorySource(
+                            name: hostName(url), url: url, suite: suite,
+                            components: components, architectures: architectures
+                        )
+                    } else {
+                        source = nil
+                    }
+                } else if line.hasPrefix("http://") || line.hasPrefix("https://") {
+                    source = RepositorySource(name: hostName(line), url: line, suite: "./")
+                } else {
+                    source = nil
+                }
+
+                if let source { append(source) }
+            }
         }
         return result
     }
 
     public static func export(_ sources: [RepositorySource]) -> String {
         sources.map { source in
-            if source.isFlat { return source.normalizedURL }
-            return "deb \(source.normalizedURL) \(source.suite) \(source.components.joined(separator: " "))"
-        }.joined(separator: "\n") + (sources.isEmpty ? "" : "\n")
+            if source.isEnabled && source.architectures.isEmpty {
+                if source.isFlat { return source.normalizedURL }
+                return "deb \(source.normalizedURL) \(source.suite) \(source.components.joined(separator: " "))"
+            }
+            var fields = [
+                "Types: deb",
+                "URIs: \(source.normalizedURL)/",
+                "Suites: \(source.suite.isEmpty ? "./" : source.suite)",
+                "Components: \(source.components.joined(separator: " "))"
+            ]
+            if !source.architectures.isEmpty {
+                fields.append("Architectures: \(source.architectures.joined(separator: " "))")
+            }
+            if !source.isEnabled { fields.append("Enabled: no") }
+            return fields.joined(separator: "\n")
+        }.joined(separator: "\n\n") + (sources.isEmpty ? "" : "\n")
     }
 
     private static func hostName(_ raw: String) -> String {

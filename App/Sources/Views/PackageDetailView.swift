@@ -96,23 +96,8 @@ struct PackageDetailView: View {
     }
 
     private var rawMetadata: String {
-        var lines = [
-            "Package: \(record.name)",
-            "Name: \(record.displayName)",
-            "Version: \(record.version.raw)",
-            "Architecture: \(record.architecture)",
-            "Section: \(record.section)",
-            "Maintainer: \(record.maintainer)"
-        ]
-        if let origin = record.origin { lines.append("Repository: \(origin.description)") }
-        if let homepage = record.homepage { lines.append("Homepage: \(homepage)") }
-        if !record.relations.depends.allTerms.isEmpty {
-            lines.append("Depends: " + record.relations.depends.allTerms.map(\.description).joined(separator: ", "))
-        }
-        if !record.relations.conflicts.allTerms.isEmpty {
-            lines.append("Conflicts: " + record.relations.conflicts.allTerms.map(\.description).joined(separator: ", "))
-        }
-        return lines.joined(separator: "\n")
+        let origin = record.origin.map { "Repository: \($0.description)\n\n" } ?? ""
+        return origin + record.stanza.serialized
     }
 
     // MARK: - Header

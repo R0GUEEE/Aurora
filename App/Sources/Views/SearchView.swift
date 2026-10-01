@@ -113,22 +113,11 @@ struct SearchView: View {
     }
 
     private var results: [PackageRecord] {
-        var values = store.searchResults(query: query, section: section)
-        if let sourceID, let source = store.sources.first(where: { $0.id == sourceID }) {
-            values = values.filter {
-                guard let origin = $0.origin else { return false }
-                return origin.url.caseInsensitiveCompare(source.normalizedURL) == .orderedSame
-                    && origin.suite == source.suite
-            }
-        }
-        if let architecture { values = values.filter { $0.architecture == architecture } }
-        if installedOnly { values = values.filter { store.state(for: $0).isInstalled } }
-        if updatesOnly { values = values.filter { store.hasUpdate(named: $0.name) } }
-        if compatibleOnly {
-            values = values.filter {
-                PackageCompatibility.evaluate($0, environment: store.environment).level != .incompatible
-            }
-        }
+        var values = store.searchResults(
+            query: query, section: section, sourceID: sourceID,
+            architecture: architecture, installedOnly: installedOnly,
+            updatesOnly: updatesOnly, compatibleOnly: compatibleOnly
+        )
         switch sort {
         case .relevance:
             break

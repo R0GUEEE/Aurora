@@ -344,7 +344,8 @@ final class AuroraStore: ObservableObject {
         candidate.url = url.trimmingCharacters(in: .whitespacesAndNewlines)
         let oldHost = URL(string: sources[position].normalizedURL)?.host?.lowercased()
         let newHost = URL(string: candidate.normalizedURL)?.host?.lowercased()
-        if oldHost != newHost {
+        let layoutWasEdited = suite != candidate.suite || components != candidate.components || architectures != candidate.architectures
+        if oldHost != newHost && !layoutWasEdited {
             // URL-only editing must not carry hidden layout metadata from the
             // previous host (for example Procursus suite -> an ordinary flat repo).
             if newHost == "apt.procurs.us" {
@@ -358,18 +359,36 @@ final class AuroraStore: ObservableObject {
                 candidate.components = []
             }
             candidate.architectures = []
+        } else {
+            candidate.suite = suite.trimmingCharacters(in: .whitespacesAndNewlines)
+            candidate.components = components
+            candidate.architectures = architectures
         }
         guard candidate.isValid else { return "Enter a valid http:// or https:// repository URL." }
         let duplicate = sources.contains {
             $0.id != id && $0.normalizedURL.caseInsensitiveCompare(candidate.normalizedURL) == .orderedSame && $0.suite == candidate.suite
         }
         guard !duplicate else { return "\(candidate.normalizedURL) is already configured." }
+        let old = sources[position]
+        let indexLocationChanged = old.normalizedURL != candidate.normalizedURL
+            || old.suite != candidate.suite
+            || old.components != candidate.components
+            || old.architectures != candidate.architectures
         sources[position] = candidate
+        if indexLocationChanged {
+            indexBySource[id] = nil
+            sources[position].lastRefreshed = nil
+            sources[position].lastError = nil
+            sources[position].consecutiveFailures = 0
+        }
         indexErrors[id] = nil
         indexWarnings[id] = nil
         signatureStatus[id] = nil
         persistSources()
-        statusMessage = "Updated \(candidate.name). Refresh it to reload metadata."
+        if indexLocationChanged { rebuildIndexes() }
+        statusMessage = indexLocationChanged
+            ? "Updated \(candidate.name). Refresh it to load packages from the new location."
+            : "Updated \(candidate.name)."
         return nil
     }
 
@@ -665,8 +684,7 @@ final class AuroraStore: ObservableObject {
         let useCache = settings.useRepositoryCache
         // Keep a rolling window full instead of waiting for the slowest member of
         // each fixed batch. This removes head-of-line blocking from dead/slow repos.
-        let configuredConcurrency = settings.fastRepositoryScan ? max(settings.refreshConcurrency, 12) : settings.refreshConcurrency
-        let concurrency = min(configuredConcurrency, enabled.count)
+        let concurrency = min(settings.refreshConcurrency, enabled.count)
         let environment = self.environment
         let requireSignature = !settings.ignoreSignatureFailures
         let requirePackageDigest = !settings.allowPackagesWithoutDigest
@@ -919,14 +937,33 @@ final class AuroraStore: ObservableObject {
 
     // MARK: - Search
 
-    func searchResults(query: String, section: String?) -> [PackageRecord] {
+    func searchResults(
+        query: String,
+        section: String?,
+        sourceID: UUID? = nil,
+        architecture: String? = nil,
+        installedOnly: Bool = false,
+        updatesOnly: Bool = false,
+        compatibleOnly: Bool = false
+    ) -> [PackageRecord] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return [] }
-        var results = combinedIndex.search(needle, section: section, limit: 200)
-        if filtersRootlessOnly {
-            results = results.filter(Self.isCompatible)
+        let selectedSource = sourceID.flatMap { id in sources.first { $0.id == id } }
+        return combinedIndex.search(needle, section: section, limit: 200) { record in
+            if filtersRootlessOnly && !Self.isCompatible(record) { return false }
+            if sourceID != nil {
+                guard let selectedSource, let origin = record.origin,
+                      origin.url.caseInsensitiveCompare(selectedSource.normalizedURL) == .orderedSame,
+                      origin.suite == selectedSource.suite else { return false }
+            }
+            if let architecture, record.architecture != architecture { return false }
+            if installedOnly && !state(for: record).isInstalled { return false }
+            if updatesOnly && !hasUpdate(named: record.name) { return false }
+            if compatibleOnly && PackageCompatibility.evaluate(record, environment: environment).level == .incompatible {
+                return false
+            }
+            return true
         }
-        return results
     }
 
     // MARK: - Packages

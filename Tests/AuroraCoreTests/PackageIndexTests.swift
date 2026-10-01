@@ -56,6 +56,18 @@ final class PackageIndexTests: XCTestCase {
         XCTAssertTrue(results.contains { $0.name.hasPrefix("unique-") })
     }
 
+    func testSearchAppliesRepositoryFilterBeforeResultLimit() {
+        let first = (0..<250).map { record("common-\($0)", "1", extra: [
+            ControlField(name: "Description", value: "matching-term")
+        ]) }
+        let wanted = record("wanted-package", "1", extra: [
+            ControlField(name: "Description", value: "matching-term")
+        ])
+        let index = PackageIndex(records: first + [wanted])
+        XCTAssertEqual(index.search("matching-term", limit: 200) { $0.name == "wanted-package" }.map(\.name),
+                       ["wanted-package"])
+    }
+
     func testBestMatchPicksTheNewestVersion() throws {
         let index = try fixtureIndex()
         let newest = try XCTUnwrap(index.bestMatch(for: DependencyTerm(name: "foo-app"),

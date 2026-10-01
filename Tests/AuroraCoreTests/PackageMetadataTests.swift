@@ -27,6 +27,39 @@ final class PackageMetadataTests: XCTestCase {
         XCTAssertEqual(parsed.map(\.suite), sources.map(\.suite))
     }
 
+    func testSourceInterchangeImportsSileoDeb822Blocks() {
+        let sources = SourceInterchange.parse("""
+        Types: deb
+        URIs: https://kernelrw.github.io/
+        Suites: ./
+        Components:
+        Architectures: iphoneos-arm64 iphoneos-arm
+        Enabled: no
+
+        Types: deb
+        URIs: https://apt.example.org/
+        Suites: stable
+        Components: main tweaks
+        """)
+        XCTAssertEqual(sources.count, 2)
+        XCTAssertEqual(sources[0].normalizedURL, "https://kernelrw.github.io")
+        XCTAssertEqual(sources[0].architectures, ["iphoneos-arm64", "iphoneos-arm"])
+        XCTAssertFalse(sources[0].isEnabled)
+        XCTAssertEqual(sources[1].suite, "stable")
+        XCTAssertEqual(sources[1].components, ["main", "tweaks"])
+        let restored = SourceInterchange.parse(SourceInterchange.export(sources))
+        XCTAssertEqual(restored.map(\.architectures), sources.map(\.architectures))
+        XCTAssertEqual(restored.map(\.isEnabled), sources.map(\.isEnabled))
+    }
+
+    func testSourceInterchangeImportsAptArchitectureOptions() {
+        let sources = SourceInterchange.parse("deb [arch=iphoneos-arm64 signed-by=/key.gpg] https://repo.example stable main")
+        XCTAssertEqual(sources.count, 1)
+        XCTAssertEqual(sources[0].normalizedURL, "https://repo.example")
+        XCTAssertEqual(sources[0].suite, "stable")
+        XCTAssertEqual(sources[0].architectures, ["iphoneos-arm64"])
+    }
+
     func testRootlessRejectsLegacyArchitecture() {
         var stanza = ControlStanza()
         stanza["Package"] = "legacy.tweak"

@@ -221,7 +221,7 @@ struct SettingsView: View {
         } header: {
             Text("Behavior & Appearance")
         } footer: {
-            Text("Fast Scan races flat-repository index formats and uses a wider parallel source window. Per-request timeout controls individual metadata requests; the whole-repo deadline prevents one source from occupying a worker indefinitely. Remembering the last working compression format reduces probes on repeat refreshes.")
+            Text("Fast Scan races up to three built-in index formats per flat repository. Refresh concurrency limits the number of repositories scanned at once. The request timeout covers each metadata request; the whole-repo deadline limits a complete scan. Remembering the last working format reduces repeat probes.")
         }
     }
 

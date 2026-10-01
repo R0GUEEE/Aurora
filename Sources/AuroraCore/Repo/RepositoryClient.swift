@@ -137,9 +137,9 @@ public actor RepositoryClient {
     private let policy: RepositoryPolicy
     private let cache: IndexCache?
 
-    /// Preference order for index compression: xz is by far the smallest thing
-    /// every modern repository publishes.
-    public static let formatPreference: [CompressionFormat] = [.zstd, .xz, .lzma, .bzip2, .gzip, .plain]
+    /// Prefer formats Aurora can decode on a stock device. Other formats remain
+    /// available as fallbacks when the jailbreak provides helper binaries.
+    public static let formatPreference: [CompressionFormat] = [.gzip, .xz, .plain, .zstd, .bzip2, .lzma]
 
     public init(
         environment: JailbreakEnvironment,
@@ -272,7 +272,12 @@ public actor RepositoryClient {
                 var loaded = false
 
                 if release == nil && policy.parallelFlatIndexScan {
-                    let candidates = paths.compactMap { path, format -> (URL, String, CompressionFormat)? in
+                    // Limit the parallel probe to the three built-in decoders and
+                    // zstd, which many modern repositories publish exclusively.
+                    // Racing six large files for every source overwhelms mobile
+                    // connections when several repositories refresh together.
+                    // The serial fallback still tries every supported format.
+                    let candidates = paths.prefix(4).compactMap { path, format -> (URL, String, CompressionFormat)? in
                         guard let indexURL = url(source, path: path) else { return nil }
                         return (indexURL, path, format)
                     }
