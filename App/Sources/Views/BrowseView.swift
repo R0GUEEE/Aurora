@@ -12,6 +12,10 @@ struct BrowseView: View {
     @State private var query = ""
     @State private var sort: PackageSort = .name
     @State private var installedOnly = false
+    @State private var updatesOnly = false
+    @State private var compatibleOnly = false
+    @State private var selectedArchitecture = "All"
+    @State private var selectedSection = "All"
 
     var body: some View {
         List {
@@ -69,6 +73,19 @@ struct BrowseView: View {
                         ForEach(PackageSort.allCases) { value in Text(value.label).tag(value) }
                     }
                     Toggle("Installed only", isOn: $installedOnly)
+                    Toggle("Updates only", isOn: $updatesOnly)
+                    Toggle("Compatible only", isOn: $compatibleOnly)
+                    Divider()
+                    Picker("Architecture", selection: $selectedArchitecture) {
+                        ForEach(architectures, id: \.self) { Text($0).tag($0) }
+                    }
+                    Picker("Section", selection: $selectedSection) {
+                        ForEach(sections, id: \.self) { Text($0).tag($0) }
+                    }
+                    if hasActiveFilters {
+                        Divider()
+                        Button("Clear Filters") { clearFilters() }
+                    }
                 } label: {
                     Image(systemName: "line.3.horizontal.decrease.circle")
                 }
@@ -102,7 +119,17 @@ struct BrowseView: View {
 
     private var filteredSections: [PackageSection] {
         store.browseRecords(matching: query).compactMap { section in
-            var records = section.records.filter { !installedOnly || store.isInstalled($0.name) }
+            if selectedSection != "All" && section.name != selectedSection { return nil }
+            var records = section.records.filter { record in
+                if installedOnly && !store.isInstalled(record.name) { return false }
+                if updatesOnly && !store.hasUpdate(named: record.name) { return false }
+                if compatibleOnly {
+                    let compatibility = PackageCompatibility.evaluate(record, environment: store.environment)
+                    if compatibility.level == .incompatible { return false }
+                }
+                if selectedArchitecture != "All" && record.architecture != selectedArchitecture { return false }
+                return true
+            }
             records.sort { lhs, rhs in
                 switch sort {
                 case .name:
@@ -115,6 +142,27 @@ struct BrowseView: View {
             }
             return records.isEmpty ? nil : PackageSection(name: section.name, records: records)
         }
+    }
+
+
+    private var architectures: [String] {
+        ["All"] + Array(Set(store.sections.flatMap { $0.records.map(\.architecture) })).sorted()
+    }
+
+    private var sections: [String] {
+        ["All"] + store.sections.map(\.name)
+    }
+
+    private var hasActiveFilters: Bool {
+        installedOnly || updatesOnly || compatibleOnly || selectedArchitecture != "All" || selectedSection != "All"
+    }
+
+    private func clearFilters() {
+        installedOnly = false
+        updatesOnly = false
+        compatibleOnly = false
+        selectedArchitecture = "All"
+        selectedSection = "All"
     }
 
     private var footerText: String {
