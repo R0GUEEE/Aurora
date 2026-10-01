@@ -146,6 +146,7 @@ final class AuroraStore: ObservableObject {
     private var hasStarted = false
     private var lastAutomaticRefresh: Date?
     private var upgradableNames: Set<String> = []
+    private var newPackageCache: [PackageRecord] = []
 
     // MARK: - Lifecycle
 
@@ -931,17 +932,24 @@ final class AuroraStore: ObservableObject {
     }
 
     private func rebuildIndexes() {
-        var merged = PackageIndex()
-        for source in sources where source.isEnabled {
-            if let index = indexBySource[source.id] {
-                merged.merge(index)
-            }
+        let enabledIndexes = sources.compactMap { source -> PackageIndex? in
+            guard source.isEnabled else { return nil }
+            return indexBySource[source.id]
         }
+
+        var merged = PackageIndex()
+        merged.reserveCapacity(enabledIndexes.reduce(0) { $0 + $1.count })
+        for index in enabledIndexes {
+            merged.merge(index)
+        }
+
         combinedIndex = merged
         updateFirstSeen(from: merged.records)
+        refreshNewPackageCache()
         sections = Self.buildSections(from: merged, rootlessOnly: filtersRootlessOnly)
         sectionNames = Self.buildSectionNames(from: merged)
         var architectureSet = Set<String>()
+        architectureSet.reserveCapacity(8)
         for record in merged.records where !record.architecture.isEmpty {
             architectureSet.insert(record.architecture)
         }
@@ -1085,7 +1093,13 @@ final class AuroraStore: ObservableObject {
     /// Date/Timestamp/Last-Modified field sort first; otherwise stable index
     /// arrival order is used as a fallback.
     func newPackageRecords(limit: Int = 200) -> [PackageRecord] {
+        guard limit > 0 else { return [] }
+        return Array(newPackageCache.prefix(limit))
+    }
+
+    private func refreshNewPackageCache() {
         var best: [String: PackageRecord] = [:]
+        best.reserveCapacity(combinedIndex.count)
         for record in combinedIndex.records {
             if filtersRootlessOnly && !Self.isCompatible(record) { continue }
             if userLibrary.hiddenPackages.contains(record.name) { continue }
@@ -1097,15 +1111,21 @@ final class AuroraStore: ObservableObject {
                 best[record.name] = record
             }
         }
-        let cutoff = Calendar.current.date(byAdding: .day, value: -settings.newPackageDays, to: Date()) ?? .distantPast
-        return best.values.filter { record in
+
+        let cutoff = Calendar.current.date(
+            byAdding: .day,
+            value: -settings.newPackageDays,
+            to: Date()
+        ) ?? .distantPast
+
+        newPackageCache = best.values.filter { record in
             (userLibrary.firstSeen[firstSeenKey(for: record)] ?? .distantPast) >= cutoff
         }.sorted { lhs, rhs in
             let ld = userLibrary.firstSeen[firstSeenKey(for: lhs)] ?? .distantPast
             let rd = userLibrary.firstSeen[firstSeenKey(for: rhs)] ?? .distantPast
             if ld != rd { return ld > rd }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-        }.prefix(limit).map { $0 }
+        }
     }
 
 
@@ -1337,7 +1357,9 @@ final class AuroraStore: ObservableObject {
         if userLibrary.hiddenPackages.contains(name) { userLibrary.hiddenPackages.remove(name) }
         else { userLibrary.hiddenPackages.insert(name) }
         persistUserLibrary()
-        rebuildIndexes()
+        // Hidden packages affect discovery only; rebuilding the repository index,
+        // sections, upgrade plan and queue analysis here was unnecessary.
+        refreshNewPackageCache()
     }
 
     func isHeld(_ name: String) -> Bool { packagePolicy.isHeld(name) }
@@ -1694,6 +1716,7 @@ final class AuroraStore: ObservableObject {
     func setNewPackageDays(_ value: Int) {
         settings.newPackageDays = min(90, max(1, value))
         persistSettings()
+        refreshNewPackageCache()
     }
 
     func setHomePackageLimit(_ value: Int) {
