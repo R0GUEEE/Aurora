@@ -181,6 +181,7 @@ struct RepositoryDetailView: View {
     @ObservedObject var store: AuroraStore
     let sourceID: UUID
     @State private var query = ""
+    @State private var confirmingRemoval = false
 
     private var source: RepositorySource? {
         store.sources.first { $0.id == sourceID }
@@ -259,7 +260,33 @@ struct RepositoryDetailView: View {
             await store.refresh(sourceID: sourceID)
         }
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if let source {
+                    ShareLink(item: source.normalizedURL) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    Menu {
+                        Button {
+                            UIPasteboard.general.string = source.normalizedURL
+                        } label: {
+                            Label("Copy Repository URL", systemImage: "doc.on.doc")
+                        }
+                        Button {
+                            store.setSourceEnabled(id: sourceID, enabled: !source.isEnabled)
+                        } label: {
+                            Label(source.isEnabled ? "Disable Repository" : "Enable Repository",
+                                  systemImage: source.isEnabled ? "pause.circle" : "play.circle")
+                        }
+                        if !source.isBuiltIn {
+                            Divider()
+                            Button(role: .destructive) { confirmingRemoval = true } label: {
+                                Label("Remove Repository", systemImage: "trash")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
                 Button {
                     Task { await store.refresh(sourceID: sourceID) }
                 } label: {
@@ -272,6 +299,12 @@ struct RepositoryDetailView: View {
                 .disabled(store.refreshState.isRefreshing || source == nil)
                 .accessibilityLabel("Refresh repository")
             }
+        }
+        .confirmationDialog("Remove this repository?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
+            Button("Remove Repository", role: .destructive) { store.removeSource(id: sourceID) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Installed packages are not removed. Aurora will stop using this repository for package discovery and updates.")
         }
     }
 }
