@@ -40,7 +40,9 @@ struct LibraryView: View {
 
     private var collections: [String] {
         store.collectionNames.filter { name in
-            matches(name) || store.packageNames(inCollection: name).contains(where: matches)
+            matches(name) || store.packageNames(inCollection: name).contains { package in
+                matches(package) || matches(store.bestRecord(named: package)?.displayName ?? package)
+            }
         }
     }
 
