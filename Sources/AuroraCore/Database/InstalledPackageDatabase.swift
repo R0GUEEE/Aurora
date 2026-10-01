@@ -50,6 +50,12 @@ public struct InstalledPackage: Hashable, Sendable {
 
     public var name: String { stanza.string("Package") ?? "" }
     public var architecture: String { stanza.string("Architecture") ?? "all" }
+
+    /// Matches ``PackageRecord/instanceKey``, so an installed package and its
+    /// candidate can be lined up without guessing about architecture.
+    public var instanceKey: String {
+        architecture == "all" ? name : "\(name):\(architecture)"
+    }
     public var version: DebianVersion { DebianVersion(stanza.string("Version") ?? "0") }
     public var status: Status { Status(parsing: stanza.string("Status") ?? "install ok installed") }
 
@@ -99,6 +105,11 @@ public struct InstalledPackageDatabase: Sendable {
             if let exact = packages["\(name):\(architecture)"] { return exact }
         }
         return packages[name] ?? packages.first(where: { $0.value.name == name })?.value
+    }
+
+    /// The installed instance with that exact instance key (`name:arch`).
+    public func package(instanceKey: String) -> InstalledPackage? {
+        packages[instanceKey] ?? packages.values.first { $0.instanceKey == instanceKey }
     }
 
     /// True when *any* instance of that name is installed and configured.

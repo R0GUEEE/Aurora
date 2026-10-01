@@ -21,6 +21,13 @@ public enum PackageAction: Hashable, Sendable {
         }
     }
 
+    /// What the queue de-duplicates on. A name for a removal, an *instance* for
+    /// anything else, so `foo:iphoneos-arm64` and `foo:iphoneos-arm` can both be
+    /// queued — which is exactly what `Multi-Arch: same` packages need.
+    public var key: String {
+        record?.instanceKey ?? name
+    }
+
     public var record: PackageRecord? {
         switch self {
         case .install(let record), .reinstall(let record), .upgrade(let record), .downgrade(let record):
@@ -99,15 +106,19 @@ public struct PackageQueue: Hashable, Sendable {
     public var isEmpty: Bool { actions.isEmpty }
     public var count: Int { actions.count }
 
-    /// One action per package: staging a second action for a name replaces the
-    /// first, which is what a queue UI is expected to do.
+    /// One action per instance: staging a second action for the same package and
+    /// architecture replaces the first, which is what a queue UI expects.
     public mutating func stage(_ action: PackageAction) {
-        actions.removeAll { $0.name == action.name }
+        actions.removeAll { $0.key == action.key }
         actions.append(action)
     }
 
     public mutating func unstage(name: String) {
         actions.removeAll { $0.name == name }
+    }
+
+    public mutating func unstage(key: String) {
+        actions.removeAll { $0.key == key }
     }
 
     public mutating func removeAll() {
@@ -211,6 +222,12 @@ public enum PlanWarning: Hashable, Sendable {
     case unsignedRepository(source: String)
     case essentialTouched(packages: [String])
     case dependencyCycle(packages: [String])
+    /// `Multi-Arch: same` instances were moved to one version together.
+    case multiArchAligned(name: String, version: String, architectures: [String])
+    /// They could not be aligned, so the transaction leaves them alone.
+    case multiArchCannotAlign(name: String, reason: String)
+    /// A pin or a hold changed what was selected.
+    case policyApplied(name: String, detail: String)
 
     public var message: String {
         switch self {
@@ -230,6 +247,12 @@ public enum PlanWarning: Hashable, Sendable {
             return "This transaction touches essential packages: \(packages.joined(separator: ", "))."
         case .dependencyCycle(let packages):
             return "\(packages.joined(separator: ", ")) depend on each other; they will be unpacked together."
+        case .multiArchAligned(let name, let version, let architectures):
+            return "\(name) is installed for \(architectures.joined(separator: " and ")); all instances move to \(version) together."
+        case .multiArchCannotAlign(let name, let reason):
+            return "\(name) cannot be aligned across architectures: \(reason)"
+        case .policyApplied(let name, let detail):
+            return "\(name): \(detail)"
         }
     }
 }

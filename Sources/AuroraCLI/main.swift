@@ -39,16 +39,25 @@ func usage() -> String {
       refresh [--only <url>]   Fetch and cache repository indexes
       search <query>           Search every available package
       show <package>           Details, versions and dependencies
-      plan install|remove <pkg>...
-      plan upgrade
-      apply install|remove <pkg>... [--purge] [--dry-run]
+      updates [--held]         List packages with a newer version available
+      plan install|remove|upgrade <pkg>...
+      apply install|remove|upgrade <pkg>... [--purge] [--dry-run]
+      install-deb <path.deb>   Install a package file, dependencies included
       deb <path.deb>           Inspect a package archive
+      doctor [--fix]           Check the device, and repair what is repairable
+      pins list|hold|unhold|forbid|allow|version
+      priority [set <url> <n>]
+      clean [--all | --unused]
+      cache                    Show what the package cache is using
       version | help
 
     OPTIONS
       --architecture <arch>    Override the dpkg architecture
       --allow-downgrade        Permit a version regression
       --recommends             Install recommended packages too
+      --autoremove             Remove dependencies nothing needs any more
+      --unhold <a,b>           Ignore holds for this run
+      --held                   Include held packages in 'updates'
       --json                   Machine-readable output
     """
 }
@@ -140,11 +149,24 @@ func architecture(_ options: Options) -> String {
     options.values["architecture"] ?? environment.architecture
 }
 
+let policyStore = PackagePolicy.Store()
+
 func resolverPolicy(_ options: Options) -> DependencyResolver.Policy {
-    DependencyResolver.Policy(
+    var packagePolicy = policyStore.load().policy
+    // A one-shot override, so a held package can be moved without editing the
+    // stored policy first.
+    if let names = options.values["unhold"] {
+        for name in names.split(separator: ",") {
+            packagePolicy.pin(nil, for: String(name))
+        }
+    }
+    return DependencyResolver.Policy(
         architecture: architecture(options),
+        allowedArchitectures: Set(environment.compatibleArchitectures),
+        packagePolicy: packagePolicy,
         installRecommends: options.has("recommends"),
-        allowDowngrades: options.has("allow-downgrade")
+        allowDowngrades: options.has("allow-downgrade"),
+        removeOrphanedDependencies: options.has("autoremove")
     )
 }
 
@@ -428,25 +450,19 @@ func commandPlan(_ arguments: [String], options: Options) throws {
     printPlan(try resolver.resolve(queue), options: options)
 }
 
-func commandApply(_ arguments: [String], options: Options) throws {
-    let queue = try queue(from: arguments, options: options)
+/// Runs a plan through dpkg and reports the outcome.
+///
+/// Shared by `apply`, `install-deb` and `doctor --fix`, so that a repair
+/// transaction is executed exactly like any other.
+func apply(_ plan: TransactionPlan, options: Options, extraPaths: [String: String] = [:]) throws {
     let list = store.load().list
-    let (index, _, _) = try loadIndex(quiet: true)
-    let resolver = DependencyResolver(available: index, installed: installedDatabase(), policy: resolverPolicy(options))
-    let plan = try resolver.resolve(queue)
-    printPlan(plan, options: options)
-
-    if options.has("dry-run") {
-        write("\ndry run: nothing was changed\n")
-        return
-    }
     guard environment.isUsable else {
         fail("this device has no usable dpkg (\(environment.layout.rawValue) layout)")
     }
 
     let engine = InstallEngine(environment: environment)
     let report = try sync {
-        try await engine.execute(plan, sources: list.sources) { event in
+        try await engine.execute(plan, sources: list.sources, localPaths: extraPaths) { event in
             switch event {
             case .stage(let message): write("  · \(message)\n")
             case .downloading(let package, let received, let total):
@@ -468,6 +484,295 @@ func commandApply(_ arguments: [String], options: Options) throws {
             write("  failed: \(package): \(reason)\n", to: .standardError)
         }
         exit(1)
+    }
+}
+
+func commandApply(_ arguments: [String], options: Options) throws {
+    if arguments.first == "upgrade" {
+        let (index, _, _) = try loadIndex(quiet: true)
+        let planner = UpgradePlanner(
+            available: index,
+            installed: installedDatabase(),
+            policy: resolverPolicy(options)
+        )
+        let queue = planner.queue(includeHeld: options.has("held"))
+        guard !queue.isEmpty else {
+            write("everything is up to date\n")
+            return
+        }
+        let resolver = DependencyResolver(available: index, installed: installedDatabase(), policy: resolverPolicy(options))
+        printPlan(try resolver.resolve(queue), options: options)
+        try apply(try resolver.resolve(queue), options: options)
+        return
+    }
+
+    let queue = try queue(from: arguments, options: options)
+    let (index, _, _) = try loadIndex(quiet: true)
+    let resolver = DependencyResolver(available: index, installed: installedDatabase(), policy: resolverPolicy(options))
+    let plan = try resolver.resolve(queue)
+    printPlan(plan, options: options)
+    if options.has("dry-run") {
+        write("\ndry run: nothing was changed\n")
+        return
+    }
+    try apply(plan, options: options)
+}
+
+func commandUpdates(_ arguments: [String], options: Options) throws {
+    let (index, _, _) = try loadIndex(quiet: true)
+    let planner = UpgradePlanner(
+        available: index,
+        installed: installedDatabase(),
+        policy: resolverPolicy(options)
+    )
+    let plan = planner.plan(includeHeld: options.has("held"))
+
+    if options.has("json") {
+        let payload: [String: Any] = [
+            "upgradable": plan.upgradable.map { ["name": $0.name, "version": $0.version.raw, "architecture": $0.architecture] },
+            "held": plan.held,
+            "forbidden": plan.forbidden,
+            "orphaned": plan.orphaned,
+        ]
+        let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .prettyPrinted])
+        write(String(decoding: data ?? Data(), as: UTF8.self) + "\n")
+        return
+    }
+
+    if plan.upgradable.isEmpty {
+        write(plan.summary + "\n")
+    } else {
+        for record in plan.upgradable.sorted(by: { $0.name < $1.name }) {
+            let installedVersion = installedDatabase().package(named: record.name, architecture: record.architecture)
+            let from = installedVersion?.version.raw ?? "?"
+            write("\(record.name.padding(toLength: 26, withPad: " ", startingAt: 0)) \(from) -> \(record.version.raw)\n")
+        }
+        write("\n\(plan.summary)\n")
+    }
+    if !plan.held.isEmpty { write("held (use --held to include them): \(plan.held.sorted().joined(separator: ", "))\n") }
+    if !plan.forbidden.isEmpty { write("forbidden by pins: \(plan.forbidden.sorted().joined(separator: ", "))\n") }
+    if !plan.pinnedBackwards.isEmpty {
+        for entry in plan.pinnedBackwards {
+            write("pinned back: \(entry.name) is installed at \(entry.installed) but only \(entry.allowed) is allowed\n")
+        }
+    }
+    if !plan.orphaned.isEmpty { write("not available in any repository: \(plan.orphaned.sorted().joined(separator: ", "))\n") }
+}
+
+/// Turns a `.deb` on disk into actions the resolver can plan for.
+func localQueue(path: String, options: Options) throws -> (queue: PackageQueue, paths: [String: String]) {
+    let local = try LocalPackageLoader.load(path: path, deviceArchitecture: architecture(options))
+    var queue = PackageQueue()
+    let installed = installedDatabase()
+
+    if let entry = installed.package(named: local.record.name, architecture: local.record.architecture) {
+        let comparison = DebianVersion.compare(local.record.version, entry.version)
+        if comparison > 0 {
+            queue.stage(.upgrade(local.record))
+        } else if comparison < 0 {
+            queue.stage(.downgrade(local.record))
+        } else {
+            queue.stage(.reinstall(local.record))
+        }
+    } else {
+        queue.stage(.install(local.record))
+    }
+    return (queue, [local.record.name: local.path])
+}
+
+func commandInstallDeb(_ arguments: [String], options: Options) throws {
+    guard let path = arguments.first(where: { !$0.hasPrefix("-") }) else {
+        throw CLIError.missingArgument("path.deb")
+    }
+    guard FileManager.default.fileExists(atPath: path) else { throw CLIError.notFound(path) }
+
+    let (queue, paths) = try localQueue(path: path, options: options)
+    // The local archive's own dependencies come from the repositories, so a
+    // refresh is needed to resolve them fairly.
+    let (index, _, _) = try loadIndex(quiet: true)
+    let database = installedDatabase()
+    let resolver = DependencyResolver(available: index, installed: database, policy: resolverPolicy(options))
+    let plan = try resolver.resolve(queue)
+
+    // Local archives are not in any index, so they must be merged into the one the
+    // resolver's plan refers to; the installer already has their paths.
+    printPlan(plan, options: options)
+    if options.has("dry-run") {
+        write("\ndry run: nothing was changed\n")
+        return
+    }
+    try apply(plan, options: options, extraPaths: paths)
+}
+
+func commandDoctor(_ arguments: [String], options: Options) throws {
+    let (index, _, _) = environment.isUsable
+        ? ((try? loadIndex(quiet: true)) ?? (PackageIndex(), [], []))
+        : (PackageIndex(), [], [])
+
+    let report = Diagnostics(environment: environment).run(available: index, policy: resolverPolicy(options))
+
+    if options.has("json") {
+        let payload: [String: Any] = [
+            "layout": report.layout,
+            "jailbroken": report.jailbroken,
+            "dpkg": report.dpkgPath ?? "",
+            "installed": report.installedCount,
+            "broken": report.broken.count,
+            "pending_configuration": report.pendingConfiguration.map(\.name),
+            "obsolete_configuration": report.obsoleteConfiguration.map(\.name),
+            "missing_dependencies": report.missingDependencies.map(\.description),
+            "package_cache_bytes": report.packageCacheBytes,
+            "index_cache_bytes": report.indexCacheBytes,
+            "notes": report.notes,
+        ]
+        let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .prettyPrinted])
+        write(String(decoding: data ?? Data(), as: UTF8.self) + "\n")
+        return
+    }
+
+    write("layout:            \(report.layout)\n")
+    write("dpkg:              \(report.dpkgPath ?? "not found")\n")
+    write("database:          \(report.statusFilePath)\(report.statusFilePresent ? "" : " (missing)")\n")
+    write("installed:         \(report.presentCount) present of \(report.installedCount) recorded\n")
+    if let free = report.freeSpace { write("free space:        \(formatBytes(free))\n") }
+    write("package cache:     \(formatBytes(report.packageCacheBytes))\n")
+    write("index cache:       \(formatBytes(report.indexCacheBytes))\n")
+    write("\n\(report.summary)\n")
+
+    if !report.pendingConfiguration.isEmpty {
+        write("\nwaiting to be configured:\n")
+        for entry in report.pendingConfiguration { write("  \(entry.name) \(entry.version.raw) [\(entry.status.state)]\n") }
+    }
+    if !report.broken.isEmpty {
+        write("\nbroken:\n")
+        for entry in report.broken where !entry.status.needsConfigure {
+            write("  \(entry.name) \(entry.version.raw) [\(entry.status.serialized)]\n")
+        }
+    }
+    if !report.missingDependencies.isEmpty {
+        write("\nunsatisfied dependencies:\n")
+        for missing in report.missingDependencies { write("  \(missing.description)\n") }
+    }
+    if !report.obsoleteConfiguration.isEmpty {
+        write("\nleftover configuration files (\(report.obsoleteConfiguration.count)):\n")
+        for entry in report.obsoleteConfiguration.prefix(10) { write("  \(entry.name)\n") }
+    }
+    for note in report.notes { write("\nnote: \(note)\n") }
+
+    guard options.has("fix") else {
+        if !report.isHealthy {
+            write("\nrun 'aurora doctor --fix' to configure what is waiting and purge leftover configuration\n")
+        }
+        return
+    }
+
+    let plan = Diagnostics(environment: environment).repairPlan(
+        for: report,
+        purgeObsoleteConfiguration: true
+    )
+    guard !plan.isEmpty else {
+        write("\nnothing to repair\n")
+        return
+    }
+    write("\nrepair:\n")
+    printPlan(plan, options: options)
+    if options.has("dry-run") {
+        write("\ndry run: nothing was changed\n")
+        return
+    }
+    try apply(plan, options: options)
+}
+
+func commandPins(_ arguments: [String]) throws {
+    var policy = policyStore.load().policy
+    guard let verb = arguments.first, verb != "list" else {
+        if policy.pins.isEmpty {
+            write("no pins\n")
+            return
+        }
+        for (name, pin) in policy.pins.sorted(by: { $0.key < $1.key }) {
+            write("\(name.padding(toLength: 26, withPad: " ", startingAt: 0)) \(pin.label)\n")
+        }
+        return
+    }
+
+    func nameArgument() throws -> String {
+        guard let name = arguments.dropFirst().first else { throw CLIError.missingArgument("package") }
+        return name
+    }
+
+    switch verb {
+    case "hold":
+        let name = try nameArgument()
+        policy.pin(.hold, for: name)
+        write("\(name) will not be upgraded automatically\n")
+    case "unhold", "allow":
+        let name = try nameArgument()
+        policy.pin(nil, for: name)
+        write("\(name) is free to change again\n")
+    case "forbid":
+        let name = try nameArgument()
+        policy.pin(.forbid, for: name)
+        write("\(name) will not be installed or upgraded\n")
+    case "version":
+        guard arguments.count >= 3 else { throw CLIError.missingArgument("package version") }
+        policy.pin(.version(arguments[2]), for: arguments[1])
+        write("\(arguments[1]) is pinned to \(arguments[2])\n")
+    default:
+        throw CLIError.notFound("unknown pins verb \(verb)")
+    }
+    try policyStore.save(policy)
+}
+
+func commandPriority(_ arguments: [String]) throws {
+    var policy = policyStore.load().policy
+    guard let verb = arguments.first, verb != "list" else {
+        if policy.sourcePriorities.isEmpty {
+            write("all repositories have the default priority \(PackagePolicy.defaultPriority)\n")
+            return
+        }
+        for (url, priority) in policy.sourcePriorities.sorted(by: { $0.value > $1.value }) {
+            write("\(String(priority).padding(toLength: 6, withPad: " ", startingAt: 0)) \(url)\n")
+        }
+        return
+    }
+    guard verb == "set", arguments.count >= 3, let priority = Int(arguments[2]) else {
+        throw CLIError.missingArgument("set <url> <priority>")
+    }
+    policy.setPriority(priority, forSource: arguments[1])
+    try policyStore.save(policy)
+    write("\(arguments[1]) now has priority \(priority)\n")
+}
+
+func commandCache(_ arguments: [String]) throws {
+    let cache = PackageCache(environment: environment)
+    let entries = cache.entries()
+    guard !entries.isEmpty else {
+        write("the package cache is empty\n")
+        return
+    }
+    for entry in entries {
+        write("\(entry.name.padding(toLength: 48, withPad: " ", startingAt: 0)) \(entry.displaySize)\n")
+    }
+    write("\n\(entries.count) file(s), \(cache.humanTotalSize())\n")
+}
+
+func commandClean(_ arguments: [String], options: Options) throws {
+    let cache = PackageCache(environment: environment)
+
+    if options.has("all") {
+        let freed = cache.clear()
+        write("removed every cached download (\(formatBytes(freed)))\n")
+        return
+    }
+
+    // Default: drop downloads for packages that are no longer installed.
+    let database = installedDatabase()
+    let result = cache.removeEntries(notMentioning: Set(database.present.map(\.name)))
+    if result.removed == 0 {
+        write("nothing to remove; \(cache.humanTotalSize()) still cached\n")
+    } else {
+        write("removed \(result.removed) cached download(s), freeing \(formatBytes(result.freed))\n")
     }
 }
 
@@ -517,10 +822,24 @@ do {
         try commandSearch(rest, options: Options(rest, valueFlags: ["architecture"]))
     case "show":
         try commandShow(rest, options: Options(rest, valueFlags: ["architecture"]))
+    case "updates", "outdated":
+        try commandUpdates(rest, options: Options(rest, valueFlags: ["architecture", "unhold"]))
+    case "install-deb", "install-local":
+        try commandInstallDeb(rest, options: Options(rest, valueFlags: ["architecture", "unhold"]))
+    case "doctor", "fsck":
+        try commandDoctor(rest, options: Options(rest, valueFlags: ["architecture"]))
+    case "pins", "pin":
+        try commandPins(rest)
+    case "priority", "priorities":
+        try commandPriority(rest)
+    case "cache":
+        try commandCache(rest)
+    case "clean":
+        try commandClean(rest, options: Options(rest, valueFlags: []))
     case "plan":
         try commandPlan(rest, options: Options(rest, valueFlags: ["architecture"]))
     case "apply":
-        try commandApply(rest, options: Options(rest, valueFlags: ["architecture"]))
+        try commandApply(rest, options: Options(rest, valueFlags: ["architecture", "unhold"]))
     case "deb":
         try commandDeb(rest)
     default:

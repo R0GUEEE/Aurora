@@ -77,6 +77,10 @@ enum Fixture {
     static let deb = "packages/aurora-fixture_1.2.3-1_iphoneos-arm64.deb"
     /// `left <relation> right` lines produced by fuzzing against dpkg.
     static let versionVectors = "version-vectors.tsv"
+    /// Index for the multi-arch tests: co-installable, foreign and arm-only packages.
+    static let packagesMultiArch = "packages/Packages-multiarch"
+    /// Installed state for those: two architectures of two co-installable libraries.
+    static let statusMultiArch = "packages/status-multiarch"
 }
 
 extension PackageRelations {

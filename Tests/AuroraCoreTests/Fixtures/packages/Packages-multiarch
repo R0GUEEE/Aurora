@@ -1,0 +1,128 @@
+Package: libmulti2
+Version: 2.1-1
+Architecture: iphoneos-arm64
+Multi-Arch: same
+Section: libs
+Installed-Size: 100
+Maintainer: Aurora Test <test@example.invalid>
+Description: Co-installable library, newest version for both architectures
+Filename: pool/main/l/libmulti2_2.1-1_iphoneos-arm64.deb
+Size: 34096
+SHA256: 0fd062746009cb364c0b5b2b56c384a89f5919fafec98e4b9e8230afc568ee49
+MD5sum: c643b3086fc8277cc05e534f961fb07a
+
+Package: libmulti2
+Version: 2.1-1
+Architecture: iphoneos-arm
+Multi-Arch: same
+Section: libs
+Installed-Size: 96
+Maintainer: Aurora Test <test@example.invalid>
+Description: Co-installable library, newest version for both architectures
+Filename: pool/main/l/libmulti2_2.1-1_iphoneos-arm.deb
+Size: 32896
+SHA256: 45cff2f9311b7105632ada72e3bc3afce681a748cc879edb259c7ea0323850f8
+MD5sum: 9a397e2e4325f57bbc392c149596dc2b
+
+Package: libmulti2
+Version: 2.0-1
+Architecture: iphoneos-arm64
+Multi-Arch: same
+Section: libs
+Installed-Size: 90
+Maintainer: Aurora Test <test@example.invalid>
+Description: Older build, installed already
+Filename: pool/main/l/libmulti2_2.0-1_iphoneos-arm64.deb
+Size: 31096
+SHA256: 1a366ebf89e1226cf60afa8fb8c1d8c743064e89cb2b670f8415418b7f91ad89
+MD5sum: e1b116bbe6b0eadd9e193c309fa71eb9
+
+Package: libmulti3
+Version: 3.0-1
+Architecture: iphoneos-arm64
+Multi-Arch: same
+Section: libs
+Installed-Size: 120
+Maintainer: Aurora Test <test@example.invalid>
+Description: Newer version exists for one architecture only
+Filename: pool/main/l/libmulti3_3.0-1_iphoneos-arm64.deb
+Size: 40096
+SHA256: 6108ed258b7ced4b6c5b63078718fd59b9dbb0eaa7fa299fa8ad7380bb7567a4
+MD5sum: 0592ec79996abfbeb5fb6fda4c7ed21f
+
+Package: toolbox
+Version: 1.2-1
+Architecture: iphoneos-arm
+Multi-Arch: foreign
+Section: utils
+Installed-Size: 50
+Maintainer: Aurora Test <test@example.invalid>
+Description: Architecture-independent tool, built for the older architecture
+Filename: pool/main/t/toolbox_1.2-1_iphoneos-arm.deb
+Size: 19096
+SHA256: 66a43bdeedd7678eaa5240127e19a5f0f33a309715ea19241870abea6db171e0
+MD5sum: 3368c75fb7e8ed6a5aabe581dea6aaee
+
+Package: needs-toolbox
+Version: 1.0-1
+Architecture: iphoneos-arm64
+Section: utils
+Installed-Size: 10
+Depends: toolbox
+Maintainer: Aurora Test <test@example.invalid>
+Description: Depends on a Multi-Arch: foreign package
+Filename: pool/main/n/needs-toolbox_1.0-1_iphoneos-arm64.deb
+Size: 7096
+SHA256: c91107774850baa9a2de8eb3d8ca1863464878eee591e914e82fc379eecee7d6
+MD5sum: 7dd209fa9249f51e380dfea895aa7f38
+
+Package: libother
+Version: 4.0-1
+Architecture: iphoneos-arm
+Section: libs
+Installed-Size: 70
+Maintainer: Aurora Test <test@example.invalid>
+Description: Only built for the older architecture, and not foreign
+Filename: pool/main/l/libother_4.0-1_iphoneos-arm.deb
+Size: 25096
+SHA256: 8c0d1b8e1bf38c35a16e9106f145beb766d0f390884c96fb408c494c342bd94f
+MD5sum: 00fa2f9874dd2e6470f2b701bd405fdc
+
+Package: anyarch-client
+Version: 1.0-1
+Architecture: iphoneos-arm64
+Section: utils
+Installed-Size: 10
+Depends: libother:any
+Maintainer: Aurora Test <test@example.invalid>
+Description: Accepts any architecture of its dependency
+Filename: pool/main/a/anyarch-client_1.0-1_iphoneos-arm64.deb
+Size: 7096
+SHA256: 1f59b71e104c7c1a448e79c71ef4aa423a7cfe8e7afde12ae97750e2d678f89c
+MD5sum: 4f632c32c6aad93a6d706d78cdb4c35b
+
+Package: plain-client
+Version: 1.0-1
+Architecture: iphoneos-arm64
+Section: utils
+Installed-Size: 10
+Depends: libother
+Maintainer: Aurora Test <test@example.invalid>
+Description: Wants a native libother and there is none
+Filename: pool/main/p/plain-client_1.0-1_iphoneos-arm64.deb
+Size: 7096
+SHA256: 98106ef47a85095914c344e7d7b97a924d2e52d0c11786c722ca72a12e27f4f9
+MD5sum: ee5c2c43b4647aeb713c2af8bd4e03d4
+
+Package: armclient
+Version: 1.0-1
+Architecture: iphoneos-arm
+Section: utils
+Installed-Size: 10
+Depends: libmulti3
+Maintainer: Aurora Test <test@example.invalid>
+Description: An arm build depending on an arm64-only library
+Filename: pool/main/a/armclient_1.0-1_iphoneos-arm.deb
+Size: 7096
+SHA256: 03cb3d91ac69824c5e17cb90e3c31c49504268af017ce64cc17c10c9e3ff2bec
+MD5sum: 5a81a48b46b1214e53e28ce8c14ddc72

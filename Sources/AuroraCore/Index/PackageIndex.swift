@@ -57,39 +57,76 @@ public struct PackageIndex: Sendable {
         candidates(named: name).map(\.version)
     }
 
-    /// The best record satisfying `term`, or nil.
+    /// Every record that could satisfy `term`, best first.
     ///
-    /// Ordering matters and is deliberate:
-    /// 1. a real package beats a package that merely provides the name;
-    /// 2. the newest version that satisfies the constraint wins;
-    /// 3. among equals, the order inside the record's own index (repository
-    ///    priority) decides, which is why ties fall back to the stored order.
+    /// The ordering rules live in ``DependencySatisfier``, so that the index and
+    /// the resolver cannot disagree about which package is the right one:
+    ///
+    /// 1. the architecture the dependency asked for wins over a `foreign`
+    ///    instance of another architecture;
+    /// 2. a higher repository priority (see ``PackagePolicy``) wins;
+    /// 3. the newest satisfying version wins;
+    /// 4. a real package wins over one that merely provides the name.
+    ///
+    /// A package pinned to a version is filtered down to that version, and a
+    /// forbidden package is not a candidate at all.
+    public func rankedMatches(
+        for term: DependencyTerm,
+        architecture: String,
+        requestedArchitecture: String? = nil,
+        allowedArchitectures: Set<String> = [],
+        policy: PackagePolicy = .default
+    ) -> [PackageRecord] {
+        guard policy.allows(term.name) else { return [] }
+        let requested = requestedArchitecture ?? architecture
+
+        var pool = candidates(named: term.name)
+        pool.append(contentsOf: providers(of: term.name))
+        // A name can appear in both lists if a package provides its own name.
+        var seen = Set<String>()
+        pool = pool.filter { seen.insert($0.id).inserted }
+
+        let satisfier = DependencySatisfier(
+            nativeArchitecture: architecture,
+            allowedArchitectures: allowedArchitectures,
+            policy: policy
+        )
+        let ranked = satisfier.rankedSatisfiers(
+            of: DependencyClause(alternatives: [term]),
+            in: pool,
+            requestedArchitecture: requested
+        )
+
+        var records = ranked.map(\.record)
+        if let pinned = policy.requiredVersion(for: term.name) {
+            records = records.filter { $0.version.raw == pinned }
+        }
+        return records
+    }
+
+    /// The best record satisfying `term`, or nil.
     public func bestMatch(
         for term: DependencyTerm,
         architecture: String,
-        allowedArchitectures: Set<String> = []
+        requestedArchitecture: String? = nil,
+        allowedArchitectures: Set<String> = [],
+        policy: PackagePolicy = .default
     ) -> PackageRecord? {
-        var matches: [PackageRecord] = []
-        let architectures = allowedArchitectures.isEmpty ? [architecture, "all"] : allowedArchitectures.union(["all", architecture])
+        rankedMatches(
+            for: term,
+            architecture: architecture,
+            requestedArchitecture: requestedArchitecture,
+            allowedArchitectures: allowedArchitectures,
+            policy: policy
+        ).first
+    }
 
-        for record in candidates(named: term.name) where architectures.contains(record.architecture) {
-            if let constraint = term.constraint {
-                guard constraint.isSatisfied(by: record.version) else { continue }
-            }
-            matches.append(record)
-        }
-        if !matches.isEmpty { return matches.first }
-
-        // Only a *versioned* Provides may satisfy a versioned dependency:
-        // an unversioned `Provides: foo` says "I am foo" without saying which foo.
-        for record in providers(of: term.name) where architectures.contains(record.architecture) {
-            guard let provided = record.relations.provides.first(where: { $0.name == term.name }) else { continue }
-            if let constraint = term.constraint {
-                guard let providedVersion = provided.version, constraint.isSatisfied(by: providedVersion) else { continue }
-            }
-            matches.append(record)
-        }
-        return matches.first
+    /// Versions of a package offered for one architecture, newest first. Used by
+    /// the downgrade picker, which must not offer a record it cannot install.
+    public func versions(of name: String, architecture: String) -> [PackageRecord] {
+        candidates(named: name)
+            .filter { $0.architecture == architecture || $0.architecture == "all" }
+            .sorted { Self.isPreferred($0, $1) }
     }
 
     /// Newest-first by version, then by name, then by repository.

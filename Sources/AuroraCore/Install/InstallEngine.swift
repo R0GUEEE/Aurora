@@ -88,9 +88,12 @@ public actor InstallEngine {
     ) async throws -> [String: String] {
         var localPaths: [String: String] = [:]
         for record in plan.unpackSteps {
+            if LocalPackageLoader.isLocalRecord(record) { continue }
             guard let source = sources.first(where: {
                 $0.normalizedURL == record.origin?.url
-            }) else { continue }
+            }) else {
+                throw InstallError.noDownloadSource(record.name)
+            }
             progress?(.stage("Downloading \(record.name) \(record.version.raw)"))
             let path = try await repositoryClient.fetchPackage(record, from: source) { received, total in
                 progress?(.downloading(package: record.name, received: received, total: total))
@@ -175,7 +178,14 @@ public actor InstallEngine {
         for step in plan.steps {
             guard case .unpack(let record_) = step else { continue }
             if paths[record_.name] == nil {
-                guard let source = sources.first(where: { $0.normalizedURL == record_.origin?.url }) else { continue }
+                if LocalPackageLoader.isLocalRecord(record_) {
+                    // A local package is a file the caller already has; there is
+                    // nothing to download, so being without it is a caller bug.
+                    throw InstallError.localArchiveMissing(record_.name)
+                }
+                guard let source = sources.first(where: { $0.normalizedURL == record_.origin?.url }) else {
+                    throw InstallError.noDownloadSource(record_.name)
+                }
                 progress?(.stage("Downloading \(record_.name)"))
                 let path = try await repositoryClient.fetchPackage(record_, from: source) { received, total in
                     progress?(.downloading(package: record_.name, received: received, total: total))
@@ -242,7 +252,13 @@ public actor InstallEngine {
         }
 
         // 4. Configure. A failure here is recoverable and reported as such.
-        if !plan.unpackSteps.isEmpty {
+        //    Repair transactions consist of nothing but configure steps, so this
+        //    cannot be gated on having unpacked something.
+        let hasConfigureSteps = plan.steps.contains { step in
+            if case .configure = step { return true }
+            return false
+        }
+        if hasConfigureSteps || !plan.unpackSteps.isEmpty {
             for record_ in plan.unpackSteps { progress?(.configuring(package: record_.name)) }
             do {
                 try await runBlocking {
@@ -280,6 +296,8 @@ public actor InstallEngine {
 
 public enum InstallError: Error, CustomStringConvertible {
     case noPackageManager(String)
+    case noDownloadSource(String)
+    case localArchiveMissing(String)
     case notEnoughSpace(required: Int64, available: Int64)
     case archiveMismatch(path: String, expected: String, found: String)
     case archiveVersionMismatch(package: String, expected: String, found: String)
@@ -288,6 +306,10 @@ public enum InstallError: Error, CustomStringConvertible {
         switch self {
         case .noPackageManager(let layout):
             return "Aurora cannot install anything: no dpkg was found (system detected as \(layout))"
+        case .noDownloadSource(let name):
+            return "\(name) has no repository to download from and no local archive was supplied"
+        case .localArchiveMissing(let name):
+            return "\(name) is a local package but its archive path was not provided"
         case .notEnoughSpace(let required, let available):
             return "not enough space: \(required / (1 << 20)) MB needed, \(available / (1 << 20)) MB free"
         case .archiveMismatch(let path, let expected, let found):

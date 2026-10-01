@@ -11,17 +11,27 @@ public struct ResolutionFailure: Error, CustomStringConvertible {
 /// Turns staged intentions into a verified, ordered transaction.
 ///
 /// The algorithm is greedy with a repair loop rather than a SAT solver: it builds
-/// the target set by walking dependencies depth-first (preferring what is already
-/// installed, then the highest satisfying version), then repairs conflicts by
-/// removing the loser, and finally re-checks every clause in the set before
-/// emitting a plan. That is deliberately the same shape as `apt`'s problem
-/// resolver at the scale a phone repository actually reaches, and it has one
-/// important property: **nothing is emitted until the whole set type-checks**,
-/// so a user cannot end up with dpkg configuring half a transaction.
+/// the target set by walking dependencies depth-first, then repairs conflicts by
+/// removing the loser, aligns `Multi-Arch: same` instances, and finally re-checks
+/// every clause of everything it is about to touch. That is deliberately the same
+/// shape as apt's problem resolver at the scale a phone repository reaches, and it
+/// has one important property: **nothing is emitted until the whole set
+/// type-checks**, so a user cannot end up with dpkg configuring half a
+/// transaction.
+///
+/// The target set is keyed per *instance* (`name:architecture`), not per name, so
+/// a `Multi-Arch: same` package can be upgraded in every architecture it is
+/// installed for, and a package built for another architecture is a separate
+/// thing rather than a replacement.
 public struct DependencyResolver: Sendable {
 
     public struct Policy: Sendable {
+        /// The device's dpkg architecture.
         public var architecture: String
+        /// Architectures the client has indexes for.
+        public var allowedArchitectures: Set<String>
+        /// Repository priorities, pins and holds.
+        public var packagePolicy: PackagePolicy
         /// Install `Recommends` along with dependencies. Off by default: on a phone
         /// this pulls in hundreds of megabytes of things nobody asked for.
         public var installRecommends: Bool
@@ -36,6 +46,8 @@ public struct DependencyResolver: Sendable {
 
         public init(
             architecture: String = "iphoneos-arm64",
+            allowedArchitectures: Set<String> = [],
+            packagePolicy: PackagePolicy = .default,
             installRecommends: Bool = false,
             allowDowngrades: Bool = false,
             removeDependentsWithPackage: Bool = true,
@@ -43,6 +55,8 @@ public struct DependencyResolver: Sendable {
             removeOrphanedDependencies: Bool = false
         ) {
             self.architecture = architecture
+            self.allowedArchitectures = allowedArchitectures
+            self.packagePolicy = packagePolicy
             self.installRecommends = installRecommends
             self.allowDowngrades = allowDowngrades
             self.removeDependentsWithPackage = removeDependentsWithPackage
@@ -51,6 +65,15 @@ public struct DependencyResolver: Sendable {
         }
 
         public static let `default` = Policy()
+
+        /// The Multi-Arch rules, in one place.
+        public var satisfier: DependencySatisfier {
+            DependencySatisfier(
+                nativeArchitecture: architecture,
+                allowedArchitectures: allowedArchitectures,
+                policy: packagePolicy
+            )
+        }
     }
 
     private let available: PackageIndex
@@ -86,6 +109,49 @@ public struct DependencyResolver: Sendable {
     }
 }
 
+/// The set of packages a transaction is trying to end up with.
+///
+/// Keyed by instance so that two architectures of a `Multi-Arch: same` package are
+/// two entries, while an `all` package is one entry regardless of which
+/// architecture asked for it.
+struct TargetSet {
+
+    private var byKey: [String: PackageRecord] = [:]
+
+    var isEmpty: Bool { byKey.isEmpty }
+    var count: Int { byKey.count }
+
+    var all: [PackageRecord] {
+        byKey.values.sorted { $0.instanceKey < $1.instanceKey }
+    }
+
+    func record(forKey key: String) -> PackageRecord? { byKey[key] }
+
+    func instances(of name: String) -> [PackageRecord] {
+        byKey.values.filter { $0.name == name }.sorted { $0.architecture < $1.architecture }
+    }
+
+    func contains(name: String) -> Bool {
+        byKey.values.contains { $0.name == name }
+    }
+
+    mutating func insert(_ record: PackageRecord) {
+        byKey[record.instanceKey] = record
+    }
+
+    mutating func remove(key: String) {
+        byKey.removeValue(forKey: key)
+    }
+
+    mutating func removeAll(named name: String) {
+        byKey = byKey.filter { $0.value.name != name }
+    }
+
+    func filter(_ predicate: (PackageRecord) -> Bool) -> [PackageRecord] {
+        byKey.values.filter(predicate)
+    }
+}
+
 /// Mutable working state for one resolution. Kept private so the public type stays
 /// a value type with no half-built state.
 private final class Resolution {
@@ -97,16 +163,23 @@ private final class Resolution {
     private(set) var errors: [ResolutionError] = []
     private var warnings: [PlanWarning] = []
 
-    /// The target set. One version per package name; conflicts between versions
-    /// are resolved when a clause is walked.
-    private var selected: [String: PackageRecord] = [:]
-    /// Names the user explicitly asked for.
-    private var explicit: [String: PackageRecord] = [:]
-    /// Names the user explicitly asked to remove, with the purge flag.
+    private var target = TargetSet()
+    /// Names the user asked for explicitly.
+    private var explicitNames: Set<String> = []
+    /// Names pulled in because something else needed them (for the UI's "why is
+    /// this happening?" section).
+    private var pulledInNames: Set<String> = []
+    /// Everything the resolver touched: only these are re-verified, so a device
+    /// with a pre-existing unmet dependency can still install something new.
+    private var inTransaction: Set<String> = []
+
+    /// Names the user asked to remove, with the purge flag.
     private var requestedRemovals: [String: Bool] = [:]
-    /// Removals forced by conflicts or by dependent packages.
+    /// Removals forced by conflicts, dependents or orphanhood — keyed by instance.
     private var forcedRemovals: [String: (purge: Bool, because: String)] = [:]
-    private var dependencyNames: Set<String> = []
+    /// Removals that also take out installed instances of a *different*
+    /// architecture of the same name (an architecture switch).
+    private var replacedArchitectures: [String: String] = [:]
 
     init(available: PackageIndex, installed: InstalledPackageDatabase, policy: DependencyResolver.Policy) {
         self.available = available
@@ -119,25 +192,26 @@ private final class Resolution {
     func plan(for queue: PackageQueue) -> TransactionPlan {
         seed(from: queue)
         if errors.isEmpty {
+            // Dependencies, then alignment, then dependencies again: aligning a
+            // `Multi-Arch: same` set can introduce a version whose own
+            // dependencies have not been looked at yet. Two passes are enough for
+            // the sets a phone repository produces; a third only repeats work.
             resolveDependencies()
+            if errors.isEmpty {
+                alignMultiArchSame()
+                if errors.isEmpty { resolveDependencies() }
+            }
         }
-        if errors.isEmpty {
-            resolveRemovals()
-        }
-        if errors.isEmpty {
-            resolveConflicts()
-        }
-        if errors.isEmpty {
-            verify()
-        }
-
+        if errors.isEmpty { resolveRemovals() }
+        if errors.isEmpty { resolveConflicts() }
+        if errors.isEmpty { verify() }
         return buildPlan()
     }
 
     /// Applies the queue to the installed state.
     private func seed(from queue: PackageQueue) {
         for entry in installed.present {
-            selected[entry.name] = entry.record
+            target.insert(entry.record)
         }
 
         for action in queue.actions {
@@ -150,75 +224,114 @@ private final class Resolution {
                 requestedRemovals[name] = purge
 
             case .install(let record), .reinstall(let record), .upgrade(let record), .downgrade(let record):
-                if let existing = installed.package(named: record.name) {
-                    // A version regression is refused whatever asked for it: an
-                    // "upgrade" action that resolves to an older version is still
-                    // a downgrade, and silently performing one is how a device
-                    // ends up with a package its dependencies cannot use.
-                    if DebianVersion.compare(record.version, existing.version) < 0, !policy.allowDowngrades {
-                        errors.append(.downgradeRefused(
-                            package: record.name,
-                            from: existing.version.raw,
-                            to: record.version.raw
-                        ))
-                        continue
-                    }
-                } else if case .reinstall = action {
-                    // Reinstalling something that is not installed is just an install.
-                    explicit[record.name] = record
-                    selected[record.name] = record
-                    continue
-                }
-                explicit[record.name] = record
-                selected[record.name] = record
+                guard stage(record, action: action) else { continue }
             }
         }
     }
 
-    /// Depth-first closure over `Pre-Depends` and `Depends`.
+    /// Adds an explicitly requested record, refusing the cases that are never what
+    /// the user meant.
+    private func stage(_ record: PackageRecord, action: PackageAction) -> Bool {
+        if case .forbid = policy.packagePolicy.pin(for: record.name) {
+            errors.append(.protectedPackage(
+                name: record.name,
+                reason: "it is marked forbidden in Aurora's preferences"
+            ))
+            return false
+        }
+        if let pinned = policy.packagePolicy.requiredVersion(for: record.name), pinned != record.version.raw {
+            errors.append(.versionConflict(
+                package: record.name,
+                wanted: record.version.raw,
+                available: "only \(pinned) is allowed by Aurora's preferences"
+            ))
+            return false
+        }
+
+        if let existing = installed.package(named: record.name, architecture: record.architecture) {
+            // A version regression is refused whatever asked for it: an "upgrade"
+            // action that resolves to an older version is still a downgrade, and
+            // silently performing one is how a device ends up with a package its
+            // dependencies cannot use.
+            if DebianVersion.compare(record.version, existing.version) < 0, !policy.allowDowngrades {
+                errors.append(.downgradeRefused(
+                    package: record.name,
+                    from: existing.version.raw,
+                    to: record.version.raw
+                ))
+                return false
+            }
+        }
+
+        explicitNames.insert(record.name)
+        inTransaction.insert(record.name)
+        replaceConflictingArchitectures(before: record)
+        target.insert(record)
+        return true
+    }
+
+    /// Installing a build for a different architecture replaces the installed one
+    /// unless both sides are `Multi-Arch: same` (the only case where two
+    /// architectures of one package coexist).
+    private func replaceConflictingArchitectures(before record: PackageRecord) {
+        for existing in target.instances(of: record.name) where existing.instanceKey != record.instanceKey {
+            guard !(existing.isMultiArchSame && record.isMultiArchSame) else { continue }
+            guard !existing.isArchitectureIndependent else { continue }
+            target.remove(key: existing.instanceKey)
+            if let entry = installed.package(named: existing.name, architecture: existing.architecture) {
+                forcedRemovals[entry.instanceKey] = (false, "it is replaced by the \(record.architecture) build")
+                replacedArchitectures[existing.instanceKey] = record.architecture
+            }
+        }
+    }
+
+    // MARK: - Dependencies
+
     private func resolveDependencies() {
-        var pending: [PackageRecord] = selected.values
-            .filter { explicit[$0.name] != nil || installed.package(named: $0.name) != nil }
-            .sorted { $0.name < $1.name }
+        var pending = target.all.filter { record in
+            explicitNames.contains(record.name) || installed.package(named: record.name) != nil
+        }
         var processed: Set<String> = []
 
         while let record = pending.popLast() {
-            guard processed.insert(record.name).inserted else { continue }
+            guard processed.insert(record.instanceKey).inserted else { continue }
+            // A dependency of an `arm` package is resolved against `arm`, not
+            // against the device's own architecture.
+            let requested = record.architecture
 
-            // Pre-Depends first: those decide unpack order, not just presence.
             let clauses = record.relations.preDepends.clauses + record.relations.depends.clauses
             for clause in clauses {
-                if let provider = satisfier(of: clause, in: selected) {
-                    // Tell the user when a virtual name was satisfied by a real
-                    // package: "why is this being installed?" is the most common
-                    // question about a queue.
-                    if provider.name != record.name,
-                       let first = clause.alternatives.first?.name,
-                       first != provider.name {
+                if let provider = satisfier(for: clause, requestedArchitecture: requested, excludingName: nil) {
+                    if let first = clause.alternatives.first?.name, first != provider.name {
                         warnings.append(.packageProvides(virtual: first, providedBy: provider.name))
                     }
                     continue
                 }
-                guard let added = satisfy(clause: clause, because: record.name) else { continue }
-                selected[added.name] = added
-                if explicit[added.name] == nil, installed.package(named: added.name) == nil {
-                    dependencyNames.insert(added.name)
+                guard let added = satisfy(clause: clause, because: record.name, requestedArchitecture: requested) else {
+                    continue
+                }
+                if explicitNames.contains(added.name) || installed.package(named: added.name) != nil {
+                    // Already present at another version: this is an upgrade of an
+                    // existing install, not a new dependency.
+                    inTransaction.insert(added.name)
+                } else {
+                    pulledInNames.insert(added.name)
+                    inTransaction.insert(added.name)
                 }
                 pending.append(added)
             }
 
             if policy.installRecommends {
-                for clause in record.relations.recommends.clauses where satisfier(of: clause, in: selected) == nil {
-                    guard let added = satisfy(clause: clause, because: record.name) else { continue }
-                    selected[added.name] = added
-                    if explicit[added.name] == nil, installed.package(named: added.name) == nil {
-                        dependencyNames.insert(added.name)
-                    }
+                for clause in record.relations.recommends.clauses
+                where satisfier(for: clause, requestedArchitecture: requested, excludingName: nil) == nil {
+                    guard let added = satisfy(clause: clause, because: record.name, requestedArchitecture: requested) else { continue }
+                    pulledInNames.insert(added.name)
+                    inTransaction.insert(added.name)
                     pending.append(added)
                 }
             } else {
                 let missing = record.relations.recommends.clauses
-                    .filter { satisfier(of: $0, in: selected) == nil }
+                    .filter { satisfier(for: $0, requestedArchitecture: requested, excludingName: nil) == nil }
                     .map { $0.alternatives.map(\.name).joined(separator: " | ") }
                 if !missing.isEmpty {
                     warnings.append(.recommendsNotInstalled(package: record.name, missing: missing))
@@ -227,63 +340,128 @@ private final class Resolution {
         }
     }
 
+    /// The best package in the target set that satisfies a clause.
+    private func satisfier(
+        for clause: DependencyClause,
+        requestedArchitecture: String,
+        excludingName: String?
+    ) -> PackageRecord? {
+        policy.satisfier.satisfier(
+            of: clause,
+            in: target.all,
+            requestedArchitecture: requestedArchitecture,
+            excluding: excludingName
+        )
+    }
+
     /// The first alternative that can be satisfied wins, which is the documented
     /// meaning of `a | b`: the order is the packager's preference.
-    private func satisfy(clause: DependencyClause, because: String) -> PackageRecord? {
+    private func satisfy(
+        clause: DependencyClause,
+        because: String,
+        requestedArchitecture: String
+    ) -> PackageRecord? {
         for term in clause.alternatives {
-            guard let candidate = available.bestMatch(
+            let matches = available.rankedMatches(
                 for: term,
                 architecture: policy.architecture,
-                allowedArchitectures: Set([policy.architecture])
-            ) else { continue }
-            // Already the right one: nothing to add, and *not* an error.
-            if let chosen = selected[term.name], DebianVersion.compare(chosen.version, candidate.version) == 0 {
+                requestedArchitecture: requestedArchitecture,
+                allowedArchitectures: policy.allowedArchitectures,
+                policy: policy.packagePolicy
+            )
+            guard let candidate = matches.first else { continue }
+
+            // Already the right instance at the right version: nothing to add, and
+            // *not* an error.
+            if let chosen = target.record(forKey: candidate.instanceKey),
+               DebianVersion.compare(chosen.version, candidate.version) == 0 {
                 return nil
             }
+            replaceConflictingArchitectures(before: candidate)
+            target.insert(candidate)
             return candidate
         }
-        errors.append(.unsatisfiedDependency(
-            package: because,
-            clause: clause.description
-        ))
-        // Also report the individual terms when nothing at all matched, so the UI
-        // can say exactly which name is missing.
-        for term in clause.alternatives where available.bestMatch(
+
+        errors.append(.unsatisfiedDependency(package: because, clause: clause.description))
+        // Report the individual names when nothing at all matched, so the UI can
+        // say exactly which package is missing.
+        for term in clause.alternatives where available.rankedMatches(
             for: DependencyTerm(name: term.name),
-            architecture: policy.architecture
-        ) == nil {
+            architecture: policy.architecture,
+            requestedArchitecture: requestedArchitecture,
+            allowedArchitectures: policy.allowedArchitectures,
+            policy: policy.packagePolicy
+        ).isEmpty {
             errors.append(.packageNotFound(term: term.name, requestedBy: because))
         }
         return nil
     }
 
-    /// The best package in the target set that satisfies a clause.
-    private func satisfier(of clause: DependencyClause, in set: [String: PackageRecord], excluding excluded: String? = nil) -> PackageRecord? {
-        for term in clause.alternatives {
-            if term.name == excluded { continue }
-            if let direct = set[term.name] {
-                if let constraint = term.constraint {
-                    if constraint.isSatisfied(by: direct.version) { return direct }
-                } else {
-                    return direct
-                }
+    // MARK: - Multi-Arch: same
+
+    /// Moves every installed instance of a `Multi-Arch: same` package to one
+    /// version.
+    ///
+    /// dpkg refuses to configure a mismatched set, so upgrading just the arm64
+    /// half of a library would fail halfway through. The aligned version is the
+    /// highest one available for *every* architecture involved; if that would mean
+    /// going backwards, the set is left alone and reported instead.
+    private func alignMultiArchSame() {
+        let names = Set(target.all.filter(\.isMultiArchSame).map(\.name))
+        for name in names {
+            let instances = target.instances(of: name).filter(\.isMultiArchSame)
+            guard instances.count > 1 else { continue }
+
+            var common: Set<String>?
+            for instance in instances {
+                let versions = Set(
+                    available.candidates(named: name)
+                        .filter { $0.architecture == instance.architecture || $0.architecture == "all" }
+                        .map(\.version.raw)
+                        .filter { version in
+                            policy.packagePolicy.requiredVersion(for: name).map { $0 == version } ?? true
+                        }
+                )
+                common = common.map { $0.intersection(versions) } ?? versions
             }
-            for record in set.values where record.name != excluded {
-                for provided in record.relations.provides where provided.name == term.name {
-                    if let constraint = term.constraint {
-                        // Only a versioned Provides satisfies a versioned dependency.
-                        guard let providedVersion = provided.version,
-                              constraint.isSatisfied(by: providedVersion) else { continue }
-                    }
-                    return record
-                }
+            guard let shared = common, !shared.isEmpty else {
+                warnings.append(.multiArchCannotAlign(
+                    name: name,
+                    reason: "no version is available for every architecture it is installed for"
+                ))
+                continue
+            }
+
+            let installedVersions = instances.map(\.version)
+            let candidates = shared.map { DebianVersion($0) }.sorted(by: >)
+            guard let aligned = candidates.first(where: { version in
+                installedVersions.allSatisfy { DebianVersion.compare($0, version) <= 0 }
+            }) else {
+                warnings.append(.multiArchCannotAlign(
+                    name: name,
+                    reason: "the only shared version is older than an installed instance"
+                ))
+                continue
+            }
+
+            var moved: [String] = []
+            for instance in instances where DebianVersion.compare(instance.version, aligned) != 0 {
+                guard let replacement = available.candidates(named: name).first(where: {
+                    $0.version.raw == aligned.raw
+                        && ($0.architecture == instance.architecture || $0.architecture == "all")
+                }) else { continue }
+                target.insert(replacement)
+                moved.append(instance.architecture)
+            }
+            if !moved.isEmpty {
+                inTransaction.insert(name)
+                warnings.append(.multiArchAligned(name: name, version: aligned.raw, architectures: moved.sorted()))
             }
         }
-        return nil
     }
 
-    /// Handles explicit removals, the packages that depend on them, and — when
-    /// asked — the dependencies nothing needs any more.
+    // MARK: - Removals, conflicts, orphans
+
     private func resolveRemovals() {
         for (name, purge) in requestedRemovals {
             guard let entry = installed.package(named: name) else { continue }
@@ -291,8 +469,12 @@ private final class Resolution {
                 errors.append(.protectedPackage(name: name, reason: "it is an essential package"))
                 continue
             }
-            selected.removeValue(forKey: name)
-            forcedRemovals[name] = (purge, "you asked to remove it")
+            for instance in target.instances(of: name) {
+                target.remove(key: instance.instanceKey)
+                if let installedEntry = installed.package(named: name, architecture: instance.architecture) {
+                    forcedRemovals[installedEntry.instanceKey] = (purge, "you asked to remove it")
+                }
+            }
             removeDependents(of: name, depth: 0)
         }
 
@@ -304,36 +486,37 @@ private final class Resolution {
     /// Every installed package whose dependency is gone must go too, or refuse.
     private func removeDependents(of name: String, depth: Int) {
         guard depth < 64 else { return } // a cycle must not loop forever
-        var dependents: [String] = []
-        for entry in installed.present where entry.name != name && selected[entry.name] != nil {
+        var dependents: [InstalledPackage] = []
+        for entry in installed.present where entry.name != name && target.contains(name: entry.name) {
             let clauses = entry.record.relations.preDepends.clauses + entry.record.relations.depends.clauses
-            let stillSatisfied = clauses.allSatisfy { satisfier(of: $0, in: selected) != nil }
-            if !stillSatisfied && !dependents.contains(entry.name) {
-                dependents.append(entry.name)
+            let stillSatisfied = clauses.allSatisfy {
+                satisfier(for: $0, requestedArchitecture: entry.architecture, excludingName: nil) != nil
+            }
+            if !stillSatisfied, !dependents.contains(where: { $0.instanceKey == entry.instanceKey }) {
+                dependents.append(entry)
             }
         }
         guard !dependents.isEmpty else { return }
 
         if !policy.removeDependentsWithPackage {
-            for dependent in dependents where selected[dependent] != nil {
+            for dependent in dependents {
                 errors.append(.protectedPackage(
-                    name: dependent,
+                    name: dependent.name,
                     reason: "it depends on \(name), which you are removing"
                 ))
             }
             return
         }
 
-        warnings.append(.removingDependents(package: name, dependents: dependents))
+        warnings.append(.removingDependents(package: name, dependents: dependents.map(\.name)))
         for dependent in dependents {
-            guard let entry = installed.package(named: dependent) else { continue }
-            if policy.protectEssential, entry.record.isProtected {
-                errors.append(.protectedPackage(name: dependent, reason: "it is an essential package"))
+            if policy.protectEssential, dependent.record.isProtected {
+                errors.append(.protectedPackage(name: dependent.name, reason: "it is an essential package"))
                 continue
             }
-            selected.removeValue(forKey: dependent)
-            forcedRemovals[dependent] = (false, "it depends on \(name)")
-            removeDependents(of: dependent, depth: depth + 1)
+            target.remove(key: dependent.instanceKey)
+            forcedRemovals[dependent.instanceKey] = (false, "it depends on \(name)")
+            removeDependents(of: dependent.name, depth: depth + 1)
         }
     }
 
@@ -343,21 +526,20 @@ private final class Resolution {
         var changed = true
         while changed {
             changed = false
-            for entry in installed.present where selected[entry.name] != nil {
+            for entry in installed.present where target.record(forKey: entry.instanceKey) != nil {
                 let record = entry.record
-                let isExplicit = explicit[record.name] != nil
-                let isEssential = record.isProtected
-                guard !isExplicit, !isEssential else { continue }
-                let needed = selected.values.contains { other in
-                    guard other.name != record.name else { return false }
+                let isExplicit = explicitNames.contains(record.name)
+                let isProtected = record.isProtected
+                guard !isExplicit, !isProtected else { continue }
+                let needed = target.filter { $0.instanceKey != record.instanceKey }.contains { other in
                     let clauses = other.relations.preDepends.clauses + other.relations.depends.clauses
                     return clauses.contains { clause in
                         clause.alternatives.contains { $0.name == record.name }
                     }
                 }
                 if !needed {
-                    selected.removeValue(forKey: record.name)
-                    forcedRemovals[record.name] = (false, "nothing needs it any more")
+                    target.remove(key: record.instanceKey)
+                    forcedRemovals[entry.instanceKey] = (false, "nothing needs it any more")
                     changed = true
                 }
             }
@@ -367,15 +549,14 @@ private final class Resolution {
     /// Removes whatever the incoming packages conflict with, then re-checks the
     /// packages that depended on the losers.
     private func resolveConflicts() {
-        for record in selected.values.sorted(by: { $0.name < $1.name }) {
+        for record in target.all {
             let clauses = record.relations.conflicts.clauses + record.relations.breaks.clauses
             for clause in clauses {
-                guard let loser = satisfier(of: clause, in: selected, excluding: record.name) else { continue }
-                // `Replaces` on its own means "these two can coexist and I take
-                // over the files" — in that case there is no Conflicts/Breaks
-                // clause to walk in the first place, so no exemption belongs here.
-                // When `Conflicts` *is* declared, the other package must go, which
-                // is how `Conflicts` + `Replaces` pairs are meant to be read.
+                guard let loser = satisfier(
+                    for: clause,
+                    requestedArchitecture: record.architecture,
+                    excludingName: record.name
+                ) else { continue }
                 if policy.protectEssential, loser.isProtected {
                     errors.append(.protectedPackage(
                         name: loser.name,
@@ -383,13 +564,13 @@ private final class Resolution {
                     ))
                     continue
                 }
-                guard installed.package(named: loser.name) != nil else {
+                guard let entry = installed.package(named: loser.name, architecture: loser.architecture) else {
                     // Not installed: just keep it out of the target set.
-                    selected.removeValue(forKey: loser.name)
+                    target.remove(key: loser.instanceKey)
                     continue
                 }
-                selected.removeValue(forKey: loser.name)
-                forcedRemovals[loser.name] = (false, "it conflicts with \(record.name)")
+                target.remove(key: loser.instanceKey)
+                forcedRemovals[entry.instanceKey] = (false, "it conflicts with \(record.name)")
                 warnings.append(.conflictingPackageRemoved(package: loser.name, because: record.name))
                 removeDependents(of: loser.name, depth: 0)
                 if !errors.isEmpty { return }
@@ -403,14 +584,15 @@ private final class Resolution {
     /// Packages that are merely installed and untouched are skipped on purpose: a
     /// device with a pre-existing unmet dependency (very common on jailbreaks,
     /// where a repository disappeared years ago) must still be able to install
-    /// something new. The dependency closure above already refuses to touch
-    /// anything that would make those worse.
+    /// something new.
     private func verify() {
-        let inTransaction = Set(explicit.keys).union(dependencyNames)
-        for record in selected.values.sorted(by: { $0.name < $1.name }) {
-            guard inTransaction.contains(record.name) else { continue }
+        for record in target.all where inTransaction.contains(record.name) {
             let clauses = record.relations.preDepends.clauses + record.relations.depends.clauses
-            for clause in clauses where satisfier(of: clause, in: selected) == nil {
+            for clause in clauses where satisfier(
+                for: clause,
+                requestedArchitecture: record.architecture,
+                excludingName: nil
+            ) == nil {
                 errors.append(.unsatisfiedDependency(package: record.name, clause: clause.description))
             }
         }
@@ -421,28 +603,21 @@ private final class Resolution {
     private func buildPlan() -> TransactionPlan {
         let removals = forcedRemovals
             .sorted { $0.key < $1.key }
-            .compactMap { name, info -> (package: InstalledPackage, purge: Bool)? in
-                guard let entry = installed.package(named: name) else { return nil }
+            .compactMap { key, info -> (package: InstalledPackage, purge: Bool)? in
+                guard let entry = installed.package(instanceKey: key) else { return nil }
                 return (entry, info.purge)
             }
 
-        let changed = selected.values.filter { record in
-            guard let existing = installed.package(named: record.name) else {
-                // Brand new, unless it is nothing but an available candidate that
-                // never ended up needed.
-                return !removals.contains { $0.package.name == record.name }
-            }
-            return DebianVersion.compare(existing.version, record.version) != 0
-        }
+        let removedKeys = Set(removals.map { $0.package.instanceKey })
 
         var toInstall: [PackageRecord] = []
         var toUpgrade: [PackageRecord] = []
         var toDowngrade: [PackageRecord] = []
         var toReinstall: [PackageRecord] = []
 
-        for record in changed.sorted(by: { $0.name < $1.name }) {
-            guard let existing = installed.package(named: record.name) else {
-                // Already-downloaded identical version: still an install.
+        for record in target.all {
+            guard !removedKeys.contains(record.instanceKey) else { continue }
+            guard let existing = installed.package(named: record.name, architecture: record.architecture) else {
                 toInstall.append(record)
                 continue
             }
@@ -456,20 +631,13 @@ private final class Resolution {
                     from: existing.version.raw,
                     to: record.version.raw
                 ))
-            } else {
+            } else if explicitNames.contains(record.name) {
+                // Same version, but the user asked for it explicitly: a reinstall.
                 toReinstall.append(record)
             }
         }
 
-        // Explicit reinstalls that are not otherwise "changed".
-        for (name, record) in explicit.sorted(by: { $0.key < $1.key }) {
-            guard let existing = installed.package(named: name),
-                  DebianVersion.compare(existing.version, record.version) == 0,
-                  !toReinstall.contains(where: { $0.name == name }) else { continue }
-            toReinstall.append(record)
-        }
-
-        let toUnpack = (toInstall + toUpgrade + toDowngrade + toReinstall).sorted { $0.name < $1.name }
+        let toUnpack = (toInstall + toUpgrade + toDowngrade + toReinstall).sorted { $0.instanceKey < $1.instanceKey }
         let (ordered, cycles) = topologicalOrder(toUnpack)
         if !cycles.isEmpty {
             warnings.append(.dependencyCycle(packages: cycles.flatMap { $0 }))
@@ -480,33 +648,38 @@ private final class Resolution {
         for removal in removals {
             steps.append(.remove(removal.package, purge: removal.purge))
         }
+        let instanceCounts = Dictionary(grouping: ordered, by: \.name).mapValues(\.count)
         for record in ordered {
             steps.append(.unpack(record))
         }
         for record in ordered {
-            steps.append(.configure(record.name))
+            // Plain name unless the plan really does touch two architectures of
+            // it, so a single-architecture transaction reads the way it always did.
+            let label = (instanceCounts[record.name] ?? 1) > 1 ? record.instanceKey : record.name
+            steps.append(.configure(label))
         }
 
-        let essentialTouched = (removals.map { $0.package.name } + toUnpack.map(\.name))
-            .filter { name in
-                let record = selected[name] ?? installed.package(named: name)?.record
-                return record?.isProtected ?? false
-            }
-        if !essentialTouched.isEmpty {
-            warnings.append(.essentialTouched(packages: Array(Set(essentialTouched)).sorted()))
+        let touched = removals.map { $0.package.name } + toUnpack.map(\.name)
+        let essential = Array(Set(touched.filter { name in
+            let record = target.instances(of: name).first
+                ?? installed.package(named: name)?.record
+            return record?.isProtected ?? false
+        })).sorted()
+        if !essential.isEmpty {
+            warnings.append(.essentialTouched(packages: essential))
         }
 
         let downloadSize = toUnpack.reduce(0) { $0 + ($1.downloadSize ?? 0) }
         // An upgrade *replaces* the installed copy, so its size must be
         // subtracted; counting only additions would overstate the space needed.
         let replacedSize = (toUpgrade + toDowngrade + toReinstall).reduce(Int64(0)) { total, record in
-            total + Int64((installed.package(named: record.name)?.record.installedSize ?? 0) * 1024)
+            total + Int64((installed.package(named: record.name, architecture: record.architecture)?.record.installedSize ?? 0) * 1024)
         }
         let installedSize = toUnpack.reduce(Int64(0)) { $0 + Int64(($1.installedSize ?? 0) * 1024) }
             - replacedSize
             - removals.reduce(Int64(0)) { $0 + Int64(($1.package.record.installedSize ?? 0) * 1024) }
 
-        let dependencies = toUnpack.filter { dependencyNames.contains($0.name) }
+        let dependencies = toUnpack.filter { pulledInNames.contains($0.name) }
 
         return TransactionPlan(
             steps: steps,
@@ -525,13 +698,30 @@ private final class Resolution {
     /// Dependencies must be unpacked before their dependents, which is a
     /// topological sort of the subgraph induced by the packages being unpacked.
     private func topologicalOrder(_ records: [PackageRecord]) -> (ordered: [PackageRecord], cycles: [[String]]) {
-        let byName = Dictionary(uniqueKeysWithValues: records.map { ($0.name, $0) })
-        // Virtual name → real names that provide it, built once instead of
+        let byKey = Dictionary(uniqueKeysWithValues: records.map { ($0.instanceKey, $0) })
+        // Virtual name → real instance keys that provide it, built once instead of
         // rescanning the set at every edge.
         var providers: [String: [String]] = [:]
         for record in records {
             for provided in record.relations.provides {
-                providers[provided.name, default: []].append(record.name)
+                providers[provided.name, default: []].append(record.instanceKey)
+            }
+        }
+        // A dependency on a name resolves to whichever instance provides it.
+        var byName: [String: [String]] = [:]
+        for record in records {
+            byName[record.name, default: []].append(record.instanceKey)
+        }
+
+        /// Which instances of a dependency could be unpacked for this dependent.
+        func compatibleKeys(for term: DependencyTerm, dependentArchitecture: String) -> [String] {
+            var keys = byName[term.name] ?? []
+            keys.append(contentsOf: providers[term.name] ?? [])
+            return keys.filter { key in
+                guard let record = byKey[key] else { return false }
+                if record.architecture == "all" || record.architecture == dependentArchitecture { return true }
+                if term.architectureQualifier?.lowercased() == "any" { return true }
+                return record.isMultiArchForeign
             }
         }
 
@@ -540,11 +730,10 @@ private final class Resolution {
         var state: [String: Int] = [:] // 0 = unvisited, 1 = in progress, 2 = done
         var stack: [String] = []
 
-        func visit(_ name: String) {
-            switch state[name] ?? 0 {
+        func visit(_ key: String) {
+            switch state[key] ?? 0 {
             case 1:
-                // Found a cycle: record the members and stop descending.
-                if let start = stack.firstIndex(of: name) {
+                if let start = stack.firstIndex(of: key) {
                     cycleProducts.append(Array(stack[start...]))
                 }
                 return
@@ -553,30 +742,26 @@ private final class Resolution {
             default:
                 break
             }
-            state[name] = 1
-            stack.append(name)
-            if let record = byName[name] {
+            state[key] = 1
+            stack.append(key)
+            if let record = byKey[key] {
                 let clauses = record.relations.preDepends.clauses + record.relations.depends.clauses
                 for clause in clauses {
                     for term in clause.alternatives {
-                        if byName[term.name] != nil, term.name != name {
-                            visit(term.name)
-                        }
-                        for provider in providers[term.name] ?? [] where provider != name {
-                            visit(provider)
+                        for candidateKey in compatibleKeys(for: term, dependentArchitecture: record.architecture)
+                        where candidateKey != key {
+                            visit(candidateKey)
                         }
                     }
                 }
             }
             stack.removeLast()
-            state[name] = 2
-            if let record = byName[name] {
-                ordered.append(record)
-            }
+            state[key] = 2
+            if let record = byKey[key] { ordered.append(record) }
         }
 
-        for record in records.sorted(by: { $0.name < $1.name }) {
-            visit(record.name)
+        for record in records.sorted(by: { $0.instanceKey < $1.instanceKey }) {
+            visit(record.instanceKey)
         }
         return (ordered, cycleProducts)
     }

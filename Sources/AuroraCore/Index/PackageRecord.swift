@@ -74,7 +74,20 @@ public struct PackageRecord: Hashable, Sendable, Identifiable {
     public var isProtected: Bool { isEssential || isRequiredPriority }
 
     public var multiArch: String? { stanza.string("Multi-Arch") }
+    /// Installed once per architecture, and every instance must be the same
+    /// version — a mismatched set is something dpkg refuses to configure.
     public var isMultiArchSame: Bool { multiArch?.lowercased() == "same" }
+    /// Interface does not depend on the architecture, so any instance satisfies a
+    /// dependency (this is what lets an `arm` CLI tool satisfy an `arm64` package).
+    public var isMultiArchForeign: Bool { multiArch?.lowercased() == "foreign" }
+    /// The instance is architecture-independent.
+    public var isArchitectureIndependent: Bool { architecture == "all" }
+
+    /// Identifies one *instance* of a package: a co-installable package gets one
+    /// entry per architecture, everything else one entry per name.
+    public var instanceKey: String {
+        isArchitectureIndependent ? name : "\(name):\(architecture)"
+    }
 
     public var synopsis: String { stanza.descriptionParts.synopsis }
     public var extendedDescription: String? { stanza.descriptionParts.body }

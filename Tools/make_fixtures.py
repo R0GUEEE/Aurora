@@ -266,6 +266,169 @@ def add_download_metadata(entries):
     return entries
 
 
+# ------------------------------------------------- Multi-arch fixtures
+#
+# Kept in a separate index so that the multi-arch tests get exactly the packages
+# they need without disturbing the counts and orderings the original fixtures are
+# asserted against.
+#
+#   libmulti2   Multi-Arch: same, 2.1-1 for both architectures, 2.0-1 for arm64
+#   libmulti3   Multi-Arch: same, a newer version for arm64 only -> cannot align
+#   toolbox     Multi-Arch: foreign, arm build only -> satisfies an arm64 package
+#   libother    arm build only: satisfies `:any` but not a plain dependency
+MULTIARCH_PACKAGES = [
+    {
+        "Package": "libmulti2",
+        "Version": "2.1-1",
+        "Architecture": "iphoneos-arm64",
+        "Multi-Arch": "same",
+        "Section": "libs",
+        "Installed-Size": "100",
+        "Maintainer": "Aurora Test <test@example.invalid>",
+        "Description": "Co-installable library, newest version for both architectures",
+    },
+    {
+        "Package": "libmulti2",
+        "Version": "2.1-1",
+        "Architecture": "iphoneos-arm",
+        "Multi-Arch": "same",
+        "Section": "libs",
+        "Installed-Size": "96",
+        "Maintainer": "Aurora Test <test@example.invalid>",
+        "Description": "Co-installable library, newest version for both architectures",
+    },
+    {
+        "Package": "libmulti2",
+        "Version": "2.0-1",
+        "Architecture": "iphoneos-arm64",
+        "Multi-Arch": "same",
+        "Section": "libs",
+        "Installed-Size": "90",
+        "Maintainer": "Aurora Test <test@example.invalid>",
+        "Description": "Older build, installed already",
+    },
+    {
+        "Package": "libmulti3",
+        "Version": "3.0-1",
+        "Architecture": "iphoneos-arm64",
+        "Multi-Arch": "same",
+        "Section": "libs",
+        "Installed-Size": "120",
+        "Maintainer": "Aurora Test <test@example.invalid>",
+        "Description": "Newer version exists for one architecture only",
+    },
+    {
+        "Package": "toolbox",
+        "Version": "1.2-1",
+        "Architecture": "iphoneos-arm",
+        "Multi-Arch": "foreign",
+        "Section": "utils",
+        "Installed-Size": "50",
+        "Maintainer": "Aurora Test <test@example.invalid>",
+        "Description": "Architecture-independent tool, built for the older architecture",
+    },
+    {
+        "Package": "needs-toolbox",
+        "Version": "1.0-1",
+        "Architecture": "iphoneos-arm64",
+        "Section": "utils",
+        "Installed-Size": "10",
+        "Depends": "toolbox",
+        "Maintainer": "Aurora Test <test@example.invalid>",
+        "Description": "Depends on a Multi-Arch: foreign package",
+    },
+    {
+        "Package": "libother",
+        "Version": "4.0-1",
+        "Architecture": "iphoneos-arm",
+        "Section": "libs",
+        "Installed-Size": "70",
+        "Maintainer": "Aurora Test <test@example.invalid>",
+        "Description": "Only built for the older architecture, and not foreign",
+    },
+    {
+        "Package": "anyarch-client",
+        "Version": "1.0-1",
+        "Architecture": "iphoneos-arm64",
+        "Section": "utils",
+        "Installed-Size": "10",
+        "Depends": "libother:any",
+        "Maintainer": "Aurora Test <test@example.invalid>",
+        "Description": "Accepts any architecture of its dependency",
+    },
+    {
+        "Package": "plain-client",
+        "Version": "1.0-1",
+        "Architecture": "iphoneos-arm64",
+        "Section": "utils",
+        "Installed-Size": "10",
+        "Depends": "libother",
+        "Maintainer": "Aurora Test <test@example.invalid>",
+        "Description": "Wants a native libother and there is none",
+    },
+    {
+        "Package": "armclient",
+        "Version": "1.0-1",
+        "Architecture": "iphoneos-arm",
+        "Section": "utils",
+        "Installed-Size": "10",
+        "Depends": "libmulti3",
+        "Maintainer": "Aurora Test <test@example.invalid>",
+        "Description": "An arm build depending on an arm64-only library",
+    },
+]
+
+# Installed state for those: both libraries are installed for both architectures
+# at an older version, which is what makes `Multi-Arch: same` interesting.
+MULTIARCH_STATUS = [
+    {
+        "Package": "libmulti2",
+        "Status": "install ok installed",
+        "Version": "2.0-1",
+        "Architecture": "iphoneos-arm64",
+        "Multi-Arch": "same",
+        "Installed-Size": "90",
+        "Description": "Co-installable library",
+    },
+    {
+        "Package": "libmulti2",
+        "Status": "install ok installed",
+        "Version": "2.0-1",
+        "Architecture": "iphoneos-arm",
+        "Multi-Arch": "same",
+        "Installed-Size": "90",
+        "Description": "Co-installable library",
+    },
+    {
+        "Package": "libmulti3",
+        "Status": "install ok installed",
+        "Version": "2.0-1",
+        "Architecture": "iphoneos-arm64",
+        "Multi-Arch": "same",
+        "Installed-Size": "110",
+        "Description": "Installed in two architectures",
+    },
+    {
+        "Package": "libmulti3",
+        "Status": "install ok installed",
+        "Version": "2.0-1",
+        "Architecture": "iphoneos-arm",
+        "Multi-Arch": "same",
+        "Installed-Size": "110",
+        "Description": "Installed in two architectures",
+    },
+    {
+        "Package": "toolbox",
+        "Status": "install ok installed",
+        "Version": "1.2-1",
+        "Architecture": "iphoneos-arm",
+        "Multi-Arch": "foreign",
+        "Installed-Size": "50",
+        "Description": "Architecture-independent tool",
+    },
+]
+
+
 def render(entries):
     """Serialises entries to control-file format, fields in insertion order."""
     out = []
@@ -299,6 +462,12 @@ def main():
         handle.write(packages)
     with open(os.path.join(PACKAGES_DIR, "status"), "wb") as handle:
         handle.write(status)
+
+    multiarch = render(add_download_metadata(MULTIARCH_PACKAGES)).encode()
+    with open(os.path.join(PACKAGES_DIR, "Packages-multiarch"), "wb") as handle:
+        handle.write(multiarch)
+    with open(os.path.join(PACKAGES_DIR, "status-multiarch"), "wb") as handle:
+        handle.write(render(MULTIARCH_STATUS).encode())
 
     # Release file, hashed the way a repository would: sha256 for the compressed
     # forms (what a client actually downloads) and md5 for the plain one.
