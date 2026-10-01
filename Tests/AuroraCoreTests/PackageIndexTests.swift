@@ -149,6 +149,37 @@ final class PackageIndexTests: XCTestCase {
         XCTAssertNil(index.bestMatch(for: exactMatch, architecture: "iphoneos-arm64"))
     }
 
+    func testResolverBestMatchMatchesRankedWinner() throws {
+        let index = try fixtureIndex()
+        let terms = [
+            DependencyTerm(name: "foo-app"),
+            DependencyTerm(name: "mail-transport-agent"),
+            DependencyTerm(
+                name: "foo-app",
+                constraint: DebianVersionConstraint(
+                    relation: .laterOrEqual,
+                    version: DebianVersion("1.9")
+                )
+            ),
+        ]
+
+        for term in terms {
+            let ranked = index.rankedMatches(
+                for: term,
+                architecture: "iphoneos-arm64",
+                requestedArchitecture: "iphoneos-arm64",
+                allowedArchitectures: ["iphoneos-arm64", "iphoneos-arm"]
+            )
+            let best = index.bestMatch(
+                for: term,
+                architecture: "iphoneos-arm64",
+                requestedArchitecture: "iphoneos-arm64",
+                allowedArchitectures: ["iphoneos-arm64", "iphoneos-arm"]
+            )
+            XCTAssertEqual(best, ranked.first)
+        }
+    }
+
     // MARK: - Provides
 
     func testProvidersOfAVirtualName() throws {
