@@ -299,7 +299,7 @@ final class AuroraStore: ObservableObject {
             return
         }
         refreshState = .refreshing(done: 0, total: enabled.count)
-        let client = makeRepositoryClient()
+        let client = makeRepositoryClient(useCache: false)
         for (offset, source) in enabled.enumerated() {
             await refresh(source, using: client)
             refreshState = .refreshing(done: offset + 1, total: enabled.count)
@@ -311,7 +311,7 @@ final class AuroraStore: ObservableObject {
     func refresh(sourceID: UUID) async {
         guard let source = sources.first(where: { $0.id == sourceID }) else { return }
         refreshState = .refreshing(done: 0, total: 1)
-        await refresh(source, using: makeRepositoryClient())
+        await refresh(source, using: makeRepositoryClient(useCache: false))
         refreshState = .idle
         rebuildIndexes()
     }
@@ -327,7 +327,8 @@ final class AuroraStore: ObservableObject {
         } catch {
             // A failed source keeps its place in the list and shows why: a dead
             // repository must not take the whole store down with it.
-            indexBySource[source.id] = nil
+            // Keep the last known-good index visible. A transient network or
+            // repository failure must not make every package from this source vanish.
             indexErrors[source.id] = AuroraFormat.message(for: error)
             indexWarnings[source.id] = []
             signatureStatus[source.id] = nil
@@ -336,10 +337,13 @@ final class AuroraStore: ObservableObject {
         rebuildIndexes()
     }
 
-    private func makeRepositoryClient() -> RepositoryClient {
+    private func makeRepositoryClient(useCache: Bool = true) -> RepositoryClient {
         RepositoryClient(
             environment: environment,
-            policy: RepositoryPolicy(requireSignature: !settings.ignoreSignatureFailures)
+            policy: RepositoryPolicy(
+                requireSignature: !settings.ignoreSignatureFailures,
+                useCache: useCache
+            )
         )
     }
 
