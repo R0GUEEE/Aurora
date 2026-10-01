@@ -11,6 +11,7 @@ struct SourcesListView: View {
 
     @State private var isAddingSource = false
     @State private var isConfirmingRestore = false
+    @State private var isImportingSources = false
 
     var body: some View {
         List {
@@ -55,6 +56,17 @@ struct SourcesListView: View {
                 Text("Repositories")
             } footer: {
                 Text("\(store.totalPackageCount) packages in the merged index.")
+            }
+
+            Section("Transfer") {
+                ShareLink(item: store.exportedSources, subject: Text("Aurora Sources")) {
+                    Label("Export Sources", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    isImportingSources = true
+                } label: {
+                    Label("Import Sources", systemImage: "square.and.arrow.down")
+                }
             }
 
             Section {
@@ -104,6 +116,9 @@ struct SourcesListView: View {
         }
         .sheet(isPresented: $isAddingSource) {
             AddSourceSheet(store: store)
+        }
+        .sheet(isPresented: $isImportingSources) {
+            ImportSourcesSheet(store: store)
         }
         .confirmationDialog(
             "Restore default repositories?",
@@ -310,5 +325,46 @@ struct AddSourceSheet: View {
             return
         }
         dismiss()
+    }
+}
+
+
+@MainActor
+struct ImportSourcesSheet: View {
+    @ObservedObject var store: AuroraStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var result: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Sources") {
+                    TextEditor(text: $text)
+                        .frame(minHeight: 220)
+                        .font(.system(.footnote, design: .monospaced))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                } footer: {
+                    Text("Paste repository URLs or APT lines such as: deb https://repo.example stable main")
+                }
+                if let result {
+                    Section { Text(result).font(.footnote).foregroundColor(.secondary) }
+                }
+            }
+            .navigationTitle("Import Sources")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Import") {
+                        let outcome = store.importSources(text)
+                        result = "Added \(outcome.added); skipped \(outcome.skipped)."
+                        if outcome.added > 0 { dismiss() }
+                    }
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
     }
 }
