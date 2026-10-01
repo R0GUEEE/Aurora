@@ -168,10 +168,18 @@ public actor RepositoryClient {
                     guard let indexURL = url(source, path: path) else { continue }
 
                     // With a Release file, only paths it vouches for are allowed.
+                    // This also makes format discovery free: paths absent from Release
+                    // never generate a network request.
                     var expected: ReleaseFile.Checksum?
                     if let release {
                         expected = release.checksum(forPath: path)
                         if expected == nil { continue }
+                    } else if let cachedFormat = await cache?.preferredFormat(for: source.normalizedURL),
+                              cachedFormat != format {
+                        // Flat/legacy repositories have no Release manifest. Remember
+                        // the last format that actually worked so the common refresh
+                        // path is one request rather than up to six 404/timeouts.
+                        continue
                     }
 
                     let outcome = await fetch(indexURL: indexURL, checksum: expected)
@@ -199,6 +207,9 @@ public actor RepositoryClient {
                         guard stanza.has("Package") else { return nil }
                         return PackageRecord(stanza: stanza, origin: origin)
                     })
+                    if release == nil {
+                        await cache?.rememberPreferredFormat(format, for: source.normalizedURL)
+                    }
                     loaded = true
                     break
                 }
@@ -438,6 +449,7 @@ actor IndexCache {
 
     private let directory: String
     private var memory: [String: Entry] = [:]
+    private var preferredFormats: [String: CompressionFormat] = [:]
 
     init(directory: String) {
         self.directory = directory
@@ -453,6 +465,21 @@ actor IndexCache {
             hash = hash &* 0x100000001b3
         }
         return String(hash, radix: 16)
+    }
+
+    func preferredFormat(for sourceURL: String) -> CompressionFormat? {
+        if let value = preferredFormats[sourceURL] { return value }
+        let path = (directory as NSString).appendingPathComponent(key(for: "format|" + sourceURL) + ".format")
+        guard let raw = try? String(contentsOfFile: path, encoding: .utf8),
+              let value = CompressionFormat(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        preferredFormats[sourceURL] = value
+        return value
+    }
+
+    func rememberPreferredFormat(_ format: CompressionFormat, for sourceURL: String) {
+        preferredFormats[sourceURL] = format
+        let path = (directory as NSString).appendingPathComponent(key(for: "format|" + sourceURL) + ".format")
+        try? format.rawValue.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     func entry(for url: String) -> Entry? {
@@ -496,6 +523,7 @@ actor IndexCache {
 
     func clear() {
         memory.removeAll()
+        preferredFormats.removeAll()
         try? FileManager.default.removeItem(atPath: directory)
         try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
     }
