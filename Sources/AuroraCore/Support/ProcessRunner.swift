@@ -128,9 +128,18 @@ public enum ProcessRunner {
         }
         posix_spawn_file_actions_addclose(&actions, stdoutPipe[0])
         posix_spawn_file_actions_addclose(&actions, stderrPipe[0])
+        #if os(macOS)
         if let currentDirectory {
             posix_spawn_file_actions_addchdir_np(&actions, currentDirectory)
         }
+        #else
+        // `posix_spawn_file_actions_addchdir_np` is macOS-only: the iOS SDK marks
+        // it unavailable, so this is the first thing that fails when the engine is
+        // built for a device rather than for the test host. On iOS the child
+        // inherits this process's working directory, which is enough — dpkg and
+        // its maintainer scripts are given absolute paths.
+        _ = currentDirectory
+        #endif
 
         var argv: [UnsafeMutablePointer<CChar>?] = ([executable] + arguments).map { strdup($0) }
         argv.append(nil)
