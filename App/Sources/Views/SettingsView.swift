@@ -77,10 +77,6 @@ struct SettingsView: View {
 
     private var refreshSection: some View {
         Section {
-            Toggle("Refresh on launch", isOn: Binding(
-                get: { store.settings.autoRefreshOnLaunch },
-                set: { store.setAutoRefresh($0) }
-            ))
             Toggle("Auto-disable repeatedly failing repositories", isOn: Binding(
                 get: { store.settings.autoDisableBadRepositories },
                 set: { store.setAutoDisableBadRepositories($0) }
