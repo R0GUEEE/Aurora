@@ -101,9 +101,14 @@ public struct PackageIndex: Sendable {
         var r = 0
 
         while l < left.count && r < right.count {
+            let leftIndex = left[l]
             let rightIndex = right[r] + rightOffset
-            if Self.isPreferred(records[left[l]], records[rightIndex]) {
-                result.append(left[l])
+            let leftPreferred = Self.isPreferred(records[leftIndex], records[rightIndex])
+            let rightPreferred = Self.isPreferred(records[rightIndex], records[leftIndex])
+            // Keep the existing (left/source) order when the comparator considers
+            // two records equivalent.
+            if leftPreferred || !rightPreferred {
+                result.append(leftIndex)
                 l += 1
             } else {
                 result.append(rightIndex)
