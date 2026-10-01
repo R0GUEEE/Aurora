@@ -12,7 +12,8 @@ import AuroraCore
 struct PackageIcon: View {
 
     let urlString: String?
-    var size: CGFloat = 36
+    var size: CGFloat = 44
+    var fallbackText: String? = nil
 
     var body: some View {
         Group {
@@ -35,11 +36,17 @@ struct PackageIcon: View {
     private var placeholder: some View {
         RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
             .fill(Color.secondary.opacity(0.15))
-            .overlay(
-                Image(systemName: "shippingbox")
-                    .font(.system(size: size * 0.45))
-                    .foregroundColor(.secondary)
-            )
+            .overlay {
+                if let fallbackText, let initial = fallbackText.first {
+                    Text(String(initial).uppercased())
+                        .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary)
+                } else {
+                    Image(systemName: "shippingbox.fill")
+                        .font(.system(size: size * 0.42))
+                        .foregroundColor(.secondary)
+                }
+            }
     }
 }
 
@@ -87,7 +94,7 @@ struct PackageRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PackageIcon(urlString: record.icon)
+            PackageIcon(urlString: resolvedIconURL, fallbackText: record.displayName)
             VStack(alignment: .leading, spacing: 2) {
                 Text(record.displayName)
                     .font(.body)
@@ -107,6 +114,13 @@ struct PackageRow: View {
             StateBadge(state: state)
         }
         .padding(.vertical, 2)
+    }
+
+    private var resolvedIconURL: String? {
+        guard let icon = record.icon?.trimmingCharacters(in: .whitespacesAndNewlines), !icon.isEmpty else { return nil }
+        if URL(string: icon)?.scheme != nil { return icon }
+        guard let base = record.origin?.url, let url = URL(string: icon, relativeTo: URL(string: base + "/")) else { return nil }
+        return url.absoluteURL.absoluteString
     }
 
     private var subtitle: String {
@@ -256,5 +270,46 @@ struct DepictionScreen: View {
                 }
             }
         }
+    }
+}
+
+
+@MainActor
+struct RepositoryIcon: View {
+    let source: RepositorySource
+    var size: CGFloat = 46
+
+    private var iconURL: URL? {
+        guard let base = URL(string: source.normalizedURL) else { return nil }
+        // Most modern jailbreak repositories expose a Cydia-compatible icon at
+        // the repository root. AsyncImage failure falls back to the monogram.
+        return URL(string: "CydiaIcon.png", relativeTo: base.appendingPathComponent("/"))?.absoluteURL
+    }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+                .fill(Color.secondary.opacity(0.12))
+            if let iconURL {
+                AsyncImage(url: iconURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFit()
+                    default:
+                        fallback
+                    }
+                }
+            } else {
+                fallback
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
+    }
+
+    private var fallback: some View {
+        Text(String(source.name.prefix(1)).uppercased())
+            .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
+            .foregroundColor(.secondary)
     }
 }
