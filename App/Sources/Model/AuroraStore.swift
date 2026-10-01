@@ -509,6 +509,7 @@ final class AuroraStore: ObservableObject {
             return
         }
         refreshState = .refreshing(done: 0, total: enabled.count)
+        defer { refreshState = .idle }
         // Keep the cache available even for a forced refresh. A forced refresh means
         // revalidate with the server; ETag/Last-Modified can still turn unchanged
         // indexes into tiny 304 responses instead of full downloads.
@@ -561,7 +562,6 @@ final class AuroraStore: ObservableObject {
         // Rebuild once after all source outcomes have landed. Rebuilding the full
         // merged index after every network batch is O(batches × packages) and was
         // a major cost on 50–100 source configurations.
-        refreshState = .idle
         persistSources()
         rebuildIndexes()
         if skipped > 0 {
@@ -572,8 +572,8 @@ final class AuroraStore: ObservableObject {
     func refresh(sourceID: UUID) async {
         guard let source = sources.first(where: { $0.id == sourceID }) else { return }
         refreshState = .refreshing(done: 0, total: 1)
+        defer { refreshState = .idle }
         await refresh(source, using: makeRepositoryClient(useCache: true))
-        refreshState = .idle
         rebuildIndexes()
     }
 
