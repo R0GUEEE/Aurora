@@ -10,6 +10,8 @@ struct BrowseView: View {
     @ObservedObject var store: AuroraStore
 
     @State private var query = ""
+    @State private var sort: PackageSort = .name
+    @State private var installedOnly = false
 
     var body: some View {
         List {
@@ -61,6 +63,16 @@ struct BrowseView: View {
             await store.refreshAll()
         }
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Menu {
+                    Picker("Sort", selection: $sort) {
+                        ForEach(PackageSort.allCases) { value in Text(value.label).tag(value) }
+                    }
+                    Toggle("Installed only", isOn: $installedOnly)
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                }
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     Task { await store.refreshAll() }
@@ -89,7 +101,20 @@ struct BrowseView: View {
     }
 
     private var filteredSections: [PackageSection] {
-        store.browseRecords(matching: query)
+        store.browseRecords(matching: query).compactMap { section in
+            var records = section.records.filter { !installedOnly || store.isInstalled($0.name) }
+            records.sort { lhs, rhs in
+                switch sort {
+                case .name:
+                    return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+                case .version:
+                    return DebianVersion.compare(lhs.version, rhs.version) > 0
+                case .size:
+                    return lhs.downloadSize > rhs.downloadSize
+                }
+            }
+            return records.isEmpty ? nil : PackageSection(name: section.name, records: records)
+        }
     }
 
     private var footerText: String {
@@ -98,5 +123,18 @@ struct BrowseView: View {
             return "\(store.totalPackageCount) packages"
         }
         return "\(shown) of \(store.totalPackageCount) packages"
+    }
+}
+
+
+private enum PackageSort: String, CaseIterable, Identifiable {
+    case name, version, size
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .name: return "Name"
+        case .version: return "Version"
+        case .size: return "Download Size"
+        }
     }
 }
