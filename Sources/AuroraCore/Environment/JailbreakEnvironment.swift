@@ -54,7 +54,12 @@ public struct JailbreakEnvironment: Sendable {
     }
 
     public var dpkgDatabaseDirectory: String { resolve("/var/lib/dpkg") }
-    public var aptSourcesListDirectory: String? { nil }
+    /// Matches APT/Sileo source discovery for the active jailbreak layout.
+    /// Rootless resolves to /var/jb/etc/apt/sources.list.d; rootful to /etc/apt/sources.list.d.
+    public var aptSourcesListDirectory: String? {
+        guard layout.isJailbroken else { return nil }
+        return resolve("/etc/apt/sources.list.d")
+    }
 
     /// Directories searched for binaries we shell out to.
     public var executableSearchPaths: [String] {

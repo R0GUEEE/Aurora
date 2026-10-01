@@ -86,7 +86,7 @@ struct UserLibraryState: Codable {
     }
 
     private static var url: URL {
-        let directory = (SourceStore.defaultPath() as NSString).deletingLastPathComponent
-        return URL(fileURLWithPath: directory).appendingPathComponent("library.json")
+        URL(fileURLWithPath: SourceStore.applicationDataDirectory())
+            .appendingPathComponent("library.json")
     }
 }

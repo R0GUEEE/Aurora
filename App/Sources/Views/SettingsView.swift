@@ -392,13 +392,20 @@ struct StateFilesSheet: View {
         NavigationStack {
             List {
                 Section {
-                    Text(store.stateDirectoryDescription)
-                        .font(.system(.footnote, design: .monospaced))
-                        .fixedSize(horizontal: false, vertical: true)
+                    LabeledContent("APT sources") {
+                        Text(store.sourceDirectoryDescription)
+                            .font(.system(.footnote, design: .monospaced))
+                            .multilineTextAlignment(.trailing)
+                    }
+                    LabeledContent("Aurora state") {
+                        Text(store.stateDirectoryDescription)
+                            .font(.system(.footnote, design: .monospaced))
+                            .multilineTextAlignment(.trailing)
+                    }
                 } header: {
-                    Text("State directory")
+                    Text("Storage")
                 } footer: {
-                    Text("sileo.sources, its Aurora state sidecar, and settings.json live here. Repository definitions use Sileo-compatible deb822 syntax and are written atomically.")
+                    Text("Aurora reads every .list and .sources file from APT's sources.list.d directory and writes Aurora-managed repositories to sileo.sources. Settings, library data, health state, and trusted keys remain in Aurora's private state directory.")
                 }
 
                 Section {
