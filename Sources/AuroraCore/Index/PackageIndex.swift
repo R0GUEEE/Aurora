@@ -112,17 +112,14 @@ public struct PackageIndex: Sendable {
         // cross-architecture dependency rules.
         if requestedArchitecture == nil {
             let directForeign = pool.filter { candidate in
+                // This escape hatch is only for explicitly selecting the real
+                // package from an allowed foreign architecture. Providers still
+                // follow normal Multi-Arch ranking, including the rule that a
+                // real package beats a virtual provider.
+                guard candidate.name == term.name else { return false }
                 guard allowedArchitectures.contains(candidate.architecture) else { return false }
                 guard policy.allows(candidate.name) else { return false }
-                if candidate.name == term.name {
-                    return term.constraint?.isSatisfied(by: candidate.version) ?? true
-                }
-                guard let provided = candidate.relations.provides.first(where: { $0.name == term.name }) else { return false }
-                if let constraint = term.constraint {
-                    guard let version = provided.version else { return false }
-                    return constraint.isSatisfied(by: version)
-                }
-                return true
+                return term.constraint?.isSatisfied(by: candidate.version) ?? true
             }
             records.append(contentsOf: directForeign)
             records = Array(Dictionary(grouping: records, by: {
