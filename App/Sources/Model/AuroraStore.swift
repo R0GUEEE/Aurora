@@ -357,39 +357,53 @@ final class AuroraStore: ObservableObject {
         architectures: [String]
     ) -> String? {
         guard let position = sources.firstIndex(where: { $0.id == id }) else { return "Repository not found." }
-        var candidate = sources[position]
+        guard let link = RepositoryLink.parse(url) else { return "Enter a valid repository URL." }
+
+        let old = sources[position]
+        var candidate = old
+        candidate.url = link.url
         candidate.name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? Self.derivedName(for: url)
+            ? Self.derivedName(for: candidate.url)
             : name.trimmingCharacters(in: .whitespacesAndNewlines)
-        candidate.url = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        let oldHost = URL(string: sources[position].normalizedURL)?.host?.lowercased()
+
+        let layoutWasEdited = suite != old.suite
+            || components != old.components
+            || architectures != old.architectures
+        let urlWasEdited = old.normalizedURL.caseInsensitiveCompare(candidate.normalizedURL) != .orderedSame
         let newHost = URL(string: candidate.normalizedURL)?.host?.lowercased()
-        let layoutWasEdited = suite != candidate.suite || components != candidate.components || architectures != candidate.architectures
-        if oldHost != newHost && !layoutWasEdited {
-            // URL-only editing must not carry hidden layout metadata from the
-            // previous host (for example Procursus suite -> an ordinary flat repo).
+
+        if urlWasEdited && !layoutWasEdited {
             if newHost == "apt.procurs.us" {
-                candidate.suite = SourceStore.builtInSources.first(where: { $0.normalizedURL.lowercased() == "https://apt.procurs.us" })?.suite ?? "iphoneos-arm64/1800"
+                candidate.url = "https://apt.procurs.us"
+                candidate.suite = SourceStore.builtInSources.first(where: {
+                    $0.normalizedURL.lowercased() == "https://apt.procurs.us"
+                })?.suite ?? "iphoneos-arm64/1800"
                 candidate.components = ["main"]
+                candidate.architectures = []
             } else if ["apt.bigboss.org", "apt.thebigboss.org", "thebigboss.org", "bigboss.org"].contains(newHost ?? "") {
+                candidate.url = "http://apt.thebigboss.org/repofiles/cydia"
                 candidate.suite = "stable"
                 candidate.components = ["main"]
+                candidate.architectures = []
             } else {
-                candidate.suite = "./"
-                candidate.components = []
+                candidate.suite = link.suite ?? "./"
+                candidate.components = link.suite == nil ? [] : (link.components.isEmpty ? ["main"] : link.components)
+                candidate.architectures = link.architectures
             }
-            candidate.architectures = []
         } else {
             candidate.suite = suite.trimmingCharacters(in: .whitespacesAndNewlines)
             candidate.components = components
             candidate.architectures = architectures
         }
+
         guard candidate.isValid else { return "Enter a valid http:// or https:// repository URL." }
         let duplicate = sources.contains {
-            $0.id != id && $0.normalizedURL.caseInsensitiveCompare(candidate.normalizedURL) == .orderedSame && $0.suite == candidate.suite
+            $0.id != id
+                && $0.normalizedURL.caseInsensitiveCompare(candidate.normalizedURL) == .orderedSame
+                && $0.suite == candidate.suite
         }
         guard !duplicate else { return "\(candidate.normalizedURL) is already configured." }
-        let old = sources[position]
+
         let indexLocationChanged = old.normalizedURL != candidate.normalizedURL
             || old.suite != candidate.suite
             || old.components != candidate.components
