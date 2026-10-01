@@ -76,6 +76,15 @@ public actor InstallEngine {
         self.repositoryClient = repositoryClient ?? RepositoryClient(environment: environment)
     }
 
+    private func source(for record: PackageRecord, in sources: [RepositorySource]) -> RepositorySource? {
+        guard let origin = record.origin else { return nil }
+        return sources.first {
+            $0.normalizedURL.caseInsensitiveCompare(origin.url) == .orderedSame
+                && $0.suite == origin.suite
+                && ($0.components.contains(origin.component) || $0.isFlat)
+        }
+    }
+
     /// Downloads and verifies every package in the plan, returning local paths.
     ///
     /// Split out from ``execute`` because the UI wants to show a queue that is
@@ -89,9 +98,7 @@ public actor InstallEngine {
         var localPaths: [String: String] = [:]
         for record in plan.unpackSteps {
             if LocalPackageLoader.isLocalRecord(record) { continue }
-            guard let source = sources.first(where: {
-                $0.normalizedURL == record.origin?.url
-            }) else {
+            guard let source = source(for: record, in: sources) else {
                 throw InstallError.noDownloadSource(record.name)
             }
             progress?(.stage("Downloading \(record.name) \(record.version.raw)"))
@@ -183,7 +190,7 @@ public actor InstallEngine {
                     // nothing to download, so being without it is a caller bug.
                     throw InstallError.localArchiveMissing(record_.name)
                 }
-                guard let source = sources.first(where: { $0.normalizedURL == record_.origin?.url }) else {
+                guard let source = source(for: record_, in: sources) else {
                     throw InstallError.noDownloadSource(record_.name)
                 }
                 progress?(.stage("Downloading \(record_.name)"))
