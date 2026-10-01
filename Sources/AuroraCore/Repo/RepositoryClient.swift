@@ -276,12 +276,11 @@ public actor RepositoryClient {
         for architecture in architectures {
             for component in components(for: source) {
                 var paths = indexPaths(source: source, architecture: architecture, component: component)
-                // Flat repositories without usable Release metadata prefer the
-                // compression format that worked last time, but always fall back to
-                // every supported format. Repositories commonly change Packages.xz
-                // to Packages.gz (or vice versa); pinning the cached format forever
-                // makes a healthy source appear permanently broken.
-                if release == nil, policy.preferCachedIndexFormat,
+                // Flat repositories probe their Packages variants independently
+                // from Release metadata, matching Sileo/Zebra behavior. A flat
+                // Release file is useful metadata, but unsigned/stale manifests are
+                // common and must not turn a healthy Packages index into a dead repo.
+                if source.isFlat, policy.preferCachedIndexFormat,
                    let preferred = await cache?.preferredFormat(for: source.normalizedURL),
                    let position = paths.firstIndex(where: { $0.1 == preferred }) {
                     let hit = paths.remove(at: position)
@@ -289,20 +288,33 @@ public actor RepositoryClient {
                 }
                 var loaded = false
 
-                if release == nil && policy.parallelFlatIndexScan {
+                if source.isFlat && policy.parallelFlatIndexScan {
                     // Limit the parallel probe to the three built-in decoders and
                     // zstd, which many modern repositories publish exclusively.
-                    // Racing six large files for every source overwhelms mobile
-                    // connections when several repositories refresh together.
-                    // The serial fallback still tries every supported format.
-                    let candidates = paths.prefix(4).compactMap { path, format -> (URL, String, CompressionFormat)? in
+                    // For a cryptographically verified flat Release we enforce its
+                    // checksum list. Unsigned flat Release files are advisory only:
+                    // many jailbreak repos publish stale/incomplete metadata while
+                    // their Packages files remain valid.
+                    let enforceFlatManifest = signature.isVerified
+                    let candidates = paths.prefix(4).compactMap { path, format -> (URL, String, CompressionFormat, ReleaseFile.Checksum?)? in
                         guard let indexURL = url(source, path: path) else { return nil }
-                        return (indexURL, path, format)
+                        let expected: ReleaseFile.Checksum?
+                        if enforceFlatManifest, let release {
+                            let prefix = source.flatPathPrefix
+                            let checksumPath = prefix.isEmpty
+                                ? path
+                                : String(path.dropFirst(min(path.count, prefix.count + 1)))
+                            guard let checksum = release.checksum(forPath: checksumPath) else { return nil }
+                            expected = checksum
+                        } else {
+                            expected = nil
+                        }
+                        return (indexURL, path, format, expected)
                     }
                     let winner: (String, CompressionFormat, [PackageRecord], [String])? = await withTaskGroup(of: (String, CompressionFormat, Data?, [String]).self, returning: (String, CompressionFormat, [PackageRecord], [String])?.self) { group in
-                        for (indexURL, path, format) in candidates {
+                        for (indexURL, path, format, expected) in candidates {
                             group.addTask {
-                                let outcome = await self.fetch(indexURL: indexURL, checksum: nil)
+                                let outcome = await self.fetch(indexURL: indexURL, checksum: expected)
                                 return (path, format, outcome.data, outcome.warnings)
                             }
                         }
@@ -352,9 +364,10 @@ public actor RepositoryClient {
                     tried.append(path)
                     guard let indexURL = url(source, path: path) else { continue }
 
-                    // With a Release file, only paths it vouches for are allowed.
-                    // This also makes format discovery free: paths absent from Release
-                    // never generate a network request.
+                    // Distribution Release files are authoritative. Flat
+                    // Release files are authoritative only when their signature was
+                    // actually verified; otherwise they are advisory metadata and
+                    // Packages discovery proceeds exactly as it does in Sileo/Zebra.
                     var expected: ReleaseFile.Checksum?
                     if let release {
                         let checksumPath: String
@@ -363,11 +376,15 @@ public actor RepositoryClient {
                             checksumPath = prefix.isEmpty
                                 ? path
                                 : String(path.dropFirst(min(path.count, prefix.count + 1)))
+                            if signature.isVerified {
+                                expected = release.checksum(forPath: checksumPath)
+                                if expected == nil { continue }
+                            }
                         } else {
                             checksumPath = path
+                            expected = release.checksum(forPath: checksumPath)
+                            if expected == nil { continue }
                         }
-                        expected = release.checksum(forPath: checksumPath)
-                        if expected == nil { continue }
                     }
 
                     let outcome = await fetch(indexURL: indexURL, checksum: expected)
@@ -400,7 +417,7 @@ public actor RepositoryClient {
                         continue
                     }
                     records.append(contentsOf: parsed)
-                    if release == nil {
+                    if source.isFlat {
                         await cache?.rememberPreferredFormat(format, for: source.normalizedURL)
                     }
                     loaded = true
