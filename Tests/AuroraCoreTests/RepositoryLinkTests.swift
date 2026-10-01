@@ -146,7 +146,10 @@ final class RepositoryLinkTests: XCTestCase {
         let source = try XCTUnwrap(SourceInterchange.parse(
             "deb [arch=iphoneos-arm64,iphoneos-arm arch-=iphoneos-arm arch+=all trusted=yes] https://repo.example.test ./ # legacy source"
         ).first)
-        XCTAssertEqual(source.architectures, ["iphoneos-arm64", "all"])
+        XCTAssertEqual(
+            source.effectiveArchitectures(defaults: ["iphoneos-arm64", "iphoneos-arm"]),
+            ["iphoneos-arm64", "all"]
+        )
         XCTAssertTrue(source.isFlat)
     }
 
@@ -161,8 +164,40 @@ final class RepositoryLinkTests: XCTestCase {
         Architectures-Remove: iphoneos-arm
         Enabled: false
         """).first)
-        XCTAssertEqual(source.architectures, ["iphoneos-arm64", "all"])
+        XCTAssertEqual(
+            source.effectiveArchitectures(defaults: ["iphoneos-arm64", "iphoneos-arm"]),
+            ["iphoneos-arm64", "all"]
+        )
         XCTAssertFalse(source.isEnabled)
+    }
+
+
+    func testArchitectureAddOnlyExtendsDeviceDefaults() throws {
+        let source = try XCTUnwrap(SourceInterchange.parse("""
+        Types: deb
+        URIs: https://repo.example.test
+        Suites: stable
+        Components: main
+        Architectures-Add: all
+        """).first)
+        XCTAssertEqual(
+            source.effectiveArchitectures(defaults: ["iphoneos-arm64", "iphoneos-arm"]),
+            ["iphoneos-arm64", "iphoneos-arm", "all"]
+        )
+    }
+
+    func testArchitectureRemoveOnlyFiltersDeviceDefaults() throws {
+        let source = try XCTUnwrap(SourceInterchange.parse("""
+        Types: deb
+        URIs: https://repo.example.test
+        Suites: stable
+        Components: main
+        Architectures-Remove: iphoneos-arm
+        """).first)
+        XCTAssertEqual(
+            source.effectiveArchitectures(defaults: ["iphoneos-arm64", "iphoneos-arm"]),
+            ["iphoneos-arm64"]
+        )
     }
 
     func testAlternateCompressedIndexLinksFoldToRepositoryRoot() throws {
