@@ -137,6 +137,18 @@ struct SettingsView: View {
                 get: { store.settings.repositoryTimeoutSeconds },
                 set: { store.setRepositoryTimeoutSeconds($0) }
             ), in: 3...60)
+            Toggle("Fast parallel repository scan", isOn: Binding(
+                get: { store.settings.fastRepositoryScan },
+                set: { store.setFastRepositoryScan($0) }
+            ))
+            Stepper("Whole-repo deadline: \(store.settings.repositoryRefreshDeadlineSeconds)s", value: Binding(
+                get: { store.settings.repositoryRefreshDeadlineSeconds },
+                set: { store.setRepositoryRefreshDeadlineSeconds($0) }
+            ), in: 10...180, step: 5)
+            Toggle("Remember working index compression", isOn: Binding(
+                get: { store.settings.preferCachedIndexFormat },
+                set: { store.setPreferCachedIndexFormat($0) }
+            ))
             Toggle("Retry failed repositories during Refresh All", isOn: Binding(
                 get: { store.settings.refreshFailedRepositories },
                 set: { store.setRefreshFailedRepositories($0) }
@@ -166,7 +178,7 @@ struct SettingsView: View {
         } header: {
             Text("Behavior & Appearance")
         } footer: {
-            Text("Tune refresh parallelism and per-request timeout for your device and source count. Failed sources can stay skipped for fast normal refreshes or be retried automatically. You can also choose how long packages remain in New and control Home density.")
+            Text("Fast Scan races flat-repository index formats and uses a wider parallel source window. Per-request timeout controls individual metadata requests; the whole-repo deadline prevents one source from occupying a worker indefinitely. Remembering the last working compression format reduces probes on repeat refreshes.")
         }
     }
 
@@ -226,6 +238,11 @@ struct SettingsView: View {
             }
             ForEach(store.cacheBreakdown(), id: \.name) { item in
                 DetailRow(label: item.name, value: AuroraFormat.bytes(item.bytes))
+            }
+            Button {
+                statusText = store.cleanRepositoryData()
+            } label: {
+                Label("Clean Repository Data", systemImage: "arrow.triangle.2.circlepath")
             }
             Button {
                 statusText = store.pruneUnusedLocalPackages()
