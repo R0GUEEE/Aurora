@@ -33,6 +33,7 @@ struct SearchView: View {
     @State private var depictionOnly = false
     @State private var commercial: CommercialFilter = .all
     @State private var sort: SearchSort = .relevance
+    @State private var isShowingFilters = false
     @AppStorage("aurora.search.recents") private var recentStorage = ""
 
     var body: some View {
@@ -129,7 +130,17 @@ struct SearchView: View {
         .navigationDestination(for: PackageRecord.self) { PackageDetailView(store: store, record: $0) }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
+                Button {
+                    isShowingFilters = true
+                } label: {
+                    Image(systemName: hasFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                }
+                .accessibilityLabel("Search filters")
+            }
+        }
+        .sheet(isPresented: $isShowingFilters) {
+            NavigationStack {
+                Form {
                     Section("Status") {
                         Toggle("Installed only", isOn: $installedOnly)
                         Toggle("Updates only", isOn: $updatesOnly)
@@ -149,23 +160,29 @@ struct SearchView: View {
                     }
 
                     Section("Section") {
-                        Button("All Sections") { section = nil }
-                        ForEach(store.sectionNames, id: \.self) { value in
-                            Button(value) { section = value }
+                        Picker("Section", selection: $section) {
+                            Text("All Sections").tag(String?.none)
+                            ForEach(store.sectionNames, id: \.self) { value in
+                                Text(value).tag(Optional(value))
+                            }
                         }
                     }
 
                     Section("Repository") {
-                        Button("All Repositories") { sourceID = nil }
-                        ForEach(store.sources.filter(\.isEnabled)) { source in
-                            Button(source.name) { sourceID = source.id }
+                        Picker("Repository", selection: $sourceID) {
+                            Text("All Repositories").tag(UUID?.none)
+                            ForEach(enabledSources) { source in
+                                Text(source.name).tag(Optional(source.id))
+                            }
                         }
                     }
 
                     Section("Architecture") {
-                        Button("All Architectures") { architecture = nil }
-                        ForEach(architectures, id: \.self) { value in
-                            Button(value) { architecture = value }
+                        Picker("Architecture", selection: $architecture) {
+                            Text("All Architectures").tag(String?.none)
+                            ForEach(architectures, id: \.self) { value in
+                                Text(value).tag(Optional(value))
+                            }
                         }
                     }
 
@@ -176,18 +193,24 @@ struct SearchView: View {
                     }
 
                     if hasFilters {
-                        Divider()
-                        Button("Clear Filters") { clearFilters() }
+                        Section {
+                            Button("Clear Filters", role: .destructive) { clearFilters() }
+                        }
                     }
-                } label: {
-                    Image(systemName: hasFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
-                .accessibilityLabel("Search filters")
+                .navigationTitle("Search Filters")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { isShowingFilters = false }
+                    }
+                }
             }
         }
     }
 
     private var architectures: [String] { store.architectureNames }
+    private var enabledSources: [RepositorySource] { store.sources.filter(\.isEnabled) }
 
     private var results: [PackageRecord] {
         var values = store.searchResults(
