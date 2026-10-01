@@ -58,7 +58,9 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             stagingPath: staging,
             onProgress: nil,
             maximumBytes: Int64(byteLimit),
-            allowNotModified: true
+            allowNotModified: true,
+            originalURL: url,
+            allowCrossOriginRedirects: false
         )
         do {
             let (temporaryURL, response) = try await session.download(for: request, delegate: delegate)
@@ -125,7 +127,12 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
         let staging = destination + ".partial"
         try? fileManager.removeItem(atPath: staging)
 
-        let delegate = DownloadDelegate(stagingPath: staging, onProgress: progress)
+        let delegate = DownloadDelegate(
+            stagingPath: staging,
+            onProgress: progress,
+            originalURL: url,
+            allowCrossOriginRedirects: allowCrossOriginRedirects
+        )
         let response: URLResponse
         do {
             // The delegate owns the temporary file and moves it as it finishes;
@@ -200,18 +207,58 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
     private let onProgress: ((Int64, Int64) -> Void)?
     private let maximumBytes: Int64?
     private let allowNotModified: Bool
+    private let originalURL: URL
+    private let allowCrossOriginRedirects: Bool
     private(set) var failure: Error?
 
     init(
         stagingPath: String,
         onProgress: ((Int64, Int64) -> Void)?,
         maximumBytes: Int64? = nil,
-        allowNotModified: Bool = false
+        allowNotModified: Bool = false,
+        originalURL: URL,
+        allowCrossOriginRedirects: Bool
     ) {
         self.stagingPath = stagingPath
         self.onProgress = onProgress
         self.maximumBytes = maximumBytes
         self.allowNotModified = allowNotModified
+        self.originalURL = originalURL
+        self.allowCrossOriginRedirects = allowCrossOriginRedirects
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let target = request.url,
+              let scheme = target.scheme?.lowercased(),
+              (scheme == "http" || scheme == "https"),
+              target.user == nil,
+              target.password == nil else {
+            failure = TransportError.invalidURL("redirected to an unsupported URL")
+            completionHandler(nil)
+            return
+        }
+
+        let sameOrigin = target.scheme?.lowercased() == originalURL.scheme?.lowercased()
+            && target.host?.lowercased() == originalURL.host?.lowercased()
+            && target.port == originalURL.port
+
+        if sameOrigin {
+            completionHandler(request)
+            return
+        }
+
+        guard allowCrossOriginRedirects, scheme == "https" else {
+            failure = TransportError.invalidURL("cross-origin redirect was not permitted")
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
     }
 
     func urlSession(
