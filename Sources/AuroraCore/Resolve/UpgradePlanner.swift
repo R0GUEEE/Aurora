@@ -8,6 +8,20 @@ import Foundation
 public struct UpgradePlanner: Sendable {
 
     public struct Plan: Sendable {
+        public init(
+            upgradable: [PackageRecord] = [],
+            held: [String] = [],
+            forbidden: [String] = [],
+            pinnedBackwards: [(name: String, installed: String, allowed: String)] = [],
+            orphaned: [String] = []
+        ) {
+            self.upgradable = upgradable
+            self.held = held
+            self.forbidden = forbidden
+            self.pinnedBackwards = pinnedBackwards
+            self.orphaned = orphaned
+        }
+
         /// Newer candidates, one per installed instance.
         public let upgradable: [PackageRecord]
         /// Installed, upgradable, but held back on purpose.
