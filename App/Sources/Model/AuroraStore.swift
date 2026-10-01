@@ -149,6 +149,11 @@ final class AuroraStore: ObservableObject {
         let loadedSources = sourceStore.load()
         self.sources = loadedSources.list.sources
         self.sourcesPersistenceError = loadedSources.failure
+        // Restore persisted health so "skip failed repositories" remains effective
+        // after relaunch instead of retrying every known-dead source immediately.
+        self.indexErrors = Dictionary(uniqueKeysWithValues: self.sources.compactMap { source in
+            source.lastError.map { (source.id, $0) }
+        })
 
         rebuildIndexes()
     }
@@ -331,7 +336,7 @@ final class AuroraStore: ObservableObject {
     /// remain enabled and keep their last known-good index; explicit retry is the
     /// recovery path so a dead host cannot repeatedly consume the refresh window.
     var skippedFailedSourceCount: Int {
-        guard settings.skipFailedRepositories else { return 0 }
+        guard settings.skipFailedRepositories && !settings.refreshFailedRepositories else { return 0 }
         return sources.filter { $0.isEnabled && indexErrors[$0.id] != nil }.count
     }
 
@@ -581,7 +586,6 @@ final class AuroraStore: ObservableObject {
         refreshState = .refreshing(done: 0, total: 1)
         defer { refreshState = .idle }
         await refresh(source, using: makeRepositoryClient(useCache: true))
-        rebuildIndexes()
     }
 
     private enum RefreshOutcome: Sendable {
