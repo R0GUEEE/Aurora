@@ -181,8 +181,10 @@ public actor InstallEngine {
         for warning in plan.warnings { record("warning: \(warning.message)") }
 
         // 1. Make sure every archive is present and is what we think it is.
+        try Task.checkCancellation()
         var paths = localPaths
         for step in plan.steps {
+            try Task.checkCancellation()
             guard case .unpack(let record_) = step else { continue }
             if paths[record_.name] == nil {
                 if LocalPackageLoader.isLocalRecord(record_) {
@@ -207,8 +209,12 @@ public actor InstallEngine {
         }
 
         // 2. Removals first: a conflicting package must be gone before its
-        //    replacement unpacks.
+        //    replacement unpacks. Cancellation is honored only between dpkg
+        //    invocations; an active dpkg process is deliberately never killed
+        //    halfway through a filesystem mutation.
+        try Task.checkCancellation()
         for step in plan.steps {
+            try Task.checkCancellation()
             guard case .remove(let package, let purge) = step else { continue }
             progress?(.removing(package: package.name))
             do {
@@ -231,7 +237,9 @@ public actor InstallEngine {
         // 3. Unpack every archive, then configure once. dpkg's own dependency
         //    ordering handles the configure pass, which is why the plan's order
         //    only has to be right for unpacking.
+        try Task.checkCancellation()
         for step in plan.steps {
+            try Task.checkCancellation()
             guard case .unpack(let record_) = step, let path = paths[record_.name] else { continue }
             progress?(.unpacking(package: record_.name))
             do {
@@ -265,6 +273,7 @@ public actor InstallEngine {
             if case .configure = step { return true }
             return false
         }
+        try Task.checkCancellation()
         if hasConfigureSteps || !plan.unpackSteps.isEmpty {
             for record_ in plan.unpackSteps { progress?(.configuring(package: record_.name)) }
             do {
