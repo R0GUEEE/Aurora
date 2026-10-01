@@ -23,7 +23,6 @@ struct RootView: View {
 
     @ObservedObject var store: AuroraStore
     @State private var selection: AppTab = .home
-    @State private var isImportingDeb = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -53,23 +52,6 @@ struct RootView: View {
                 selection = first
             }
         }
-        .fileImporter(
-            isPresented: $isImportingDeb,
-            allowedContentTypes: [.data],
-            allowsMultipleSelection: true
-        ) { result in
-            switch result {
-            case .success(let urls):
-                for url in urls where url.pathExtension.lowercased() == "deb" {
-                    store.stageLocalPackage(at: url)
-                }
-                if !urls.isEmpty && !urls.contains(where: { $0.pathExtension.lowercased() == "deb" }) {
-                    store.lastError = "Select a .deb package."
-                }
-            case .failure(let error):
-                store.lastError = "Could not open package: \(error.localizedDescription)"
-            }
-        }
         .onOpenURL { url in
             guard url.pathExtension.lowercased() == "deb" else { return }
             store.stageLocalPackage(at: url)
@@ -96,17 +78,7 @@ struct RootView: View {
         case .search:
             NavigationStack { SearchView(store: store) }
         case .queue:
-            NavigationStack {
-                QueueView(store: store)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button { isImportingDeb = true } label: {
-                                Image(systemName: "doc.badge.plus")
-                            }
-                            .accessibilityLabel("Open local Debian package")
-                        }
-                    }
-            }
+            NavigationStack { QueueView(store: store) }
         case .settings:
             NavigationStack { SettingsView(store: store) }
         }

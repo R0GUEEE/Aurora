@@ -12,6 +12,8 @@ struct QueueView: View {
 
     @State private var runner: TransactionRunner?
     @State private var pendingPlan: TransactionPlan?
+    @State private var isImportingDeb = false
+    @State private var isConfirmingClear = false
 
     var body: some View {
         List {
@@ -106,6 +108,38 @@ struct QueueView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Queue")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button { isImportingDeb = true } label: {
+                        Label("Open Local Packages", systemImage: "doc.badge.plus")
+                    }
+                    ShareLink(item: store.exportedQueue, subject: Text("Aurora Queue")) {
+                        Label("Share Queue Summary", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(store.queue.isEmpty)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("Queue tools")
+            }
+        }
+        .fileImporter(isPresented: $isImportingDeb, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
+            switch result {
+            case .success(let urls):
+                let packages = urls.filter { $0.pathExtension.lowercased() == "deb" }
+                if packages.isEmpty { store.lastError = "Select one or more .deb packages." }
+                for url in packages { store.stageLocalPackage(at: url) }
+            case .failure(let error):
+                store.lastError = "Could not open package: \(error.localizedDescription)"
+            }
+        }
+        .confirmationDialog("Clear the queue?", isPresented: $isConfirmingClear, titleVisibility: .visible) {
+            Button("Clear Queue", role: .destructive) { store.clearQueue() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Discards the \(store.queueCount) staged changes. Installed packages are untouched.")
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !store.queue.isEmpty {
                 confirmBar
@@ -165,7 +199,7 @@ struct QueueView: View {
             }
             Spacer(minLength: 6)
             Button {
-                store.unstage(action.name)
+                store.unstage(action)
             } label: {
                 Image(systemName: "minus.circle")
                     .foregroundColor(.red)
@@ -226,7 +260,7 @@ struct QueueView: View {
             }
             HStack {
                 Button("Clear", role: .destructive) {
-                    store.clearQueue()
+                    isConfirmingClear = true
                 }
                 Spacer()
                 Button {

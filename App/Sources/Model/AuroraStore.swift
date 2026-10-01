@@ -547,11 +547,22 @@ final class AuroraStore: ObservableObject {
 
     @discardableResult
     func importBackup(_ text: String) -> Bool {
+        guard !refreshState.isRefreshing else {
+            lastError = "Wait for repository refresh to finish before restoring a backup."
+            return false
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let data = text.data(using: .utf8),
               let backup = try? decoder.decode(BackupDocument.self, from: data) else {
             lastError = "This is not a valid Aurora backup."
+            return false
+        }
+        let sourceKeys = backup.sources.map { "\($0.normalizedURL.lowercased())|\($0.suite)" }
+        guard backup.sources.allSatisfy(\.isValid),
+              Set(backup.sources.map(\.id)).count == backup.sources.count,
+              Set(sourceKeys).count == sourceKeys.count else {
+            lastError = "This backup contains invalid or duplicate repositories."
             return false
         }
         sources = backup.sources
@@ -1121,6 +1132,42 @@ final class AuroraStore: ObservableObject {
         persistUserLibrary()
     }
 
+    /// Stage missing bookmarked packages once, then resolve the complete queue.
+    /// Existing queue decisions and installed packages are left alone.
+    func queueMissingBookmarks() -> (queued: Int, skipped: Int) {
+        var queued = 0
+        var skipped = 0
+        for name in userLibrary.bookmarks.sorted() {
+            guard !isInstalled(name), stagedAction(for: name) == nil else { continue }
+            guard let record = combinedIndex.candidates(named: name).first(where: {
+                ($0.architecture == "all" || environment.compatibleArchitectures.contains($0.architecture))
+                    && PackageCompatibility.evaluate($0, environment: environment).level != .incompatible
+            }) else {
+                skipped += 1
+                continue
+            }
+            queue.stage(.install(record))
+            queued += 1
+        }
+        if queued > 0 { refreshQueueAnalysis() }
+        return (queued, skipped)
+    }
+
+    func clearPackageHistory() {
+        userLibrary.history.removeAll()
+        persistUserLibrary()
+    }
+
+    var exportedQueue: String {
+        let actions = queue.actions.map { action in
+            let target = action.record.map { "\($0.name):\($0.architecture)=\($0.version.raw)" } ?? action.name
+            return "\(action.kind.label): \(target)"
+        }
+        return (["Aurora Queue", queueAnalysis.summary, "Download: \(AuroraFormat.bytes(queueAnalysis.downloadSize))", ""]
+            + actions + [""] + queueAnalysis.errors.map { "Error: \($0)" }
+            + queueAnalysis.warnings.map { "Warning: \($0)" }).joined(separator: "\n")
+    }
+
     func isHidden(_ name: String) -> Bool { userLibrary.hiddenPackages.contains(name) }
 
     func toggleHidden(_ name: String) {
@@ -1184,6 +1231,11 @@ final class AuroraStore: ObservableObject {
 
     func unstage(_ name: String) {
         queue.unstage(name: name)
+        refreshQueueAnalysis()
+    }
+
+    func unstage(_ action: PackageAction) {
+        queue.unstage(instanceKey: action.key)
         refreshQueueAnalysis()
     }
 

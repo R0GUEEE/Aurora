@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var isConfirmingCacheClear = false
     @State private var isShowingLogs = false
     @State private var statusText: String?
+    @State private var isExportingBackup = false
+    @State private var backupDocument = TextTransferDocument(text: "")
 
     var body: some View {
         List {
@@ -42,6 +44,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $isShowingLogs) {
             StateFilesSheet(store: store)
+        }
+        .fileExporter(isPresented: $isExportingBackup, document: backupDocument, contentType: .json, defaultFilename: "aurora-backup.json") { result in
+            if case .failure(let error) = result { store.lastError = error.localizedDescription }
         }
     }
 
@@ -250,6 +255,12 @@ struct SettingsView: View {
 
     private var backupSection: some View {
         Section {
+            Button {
+                backupDocument = TextTransferDocument(text: store.exportedBackup)
+                isExportingBackup = true
+            } label: {
+                Label("Save Backup to Files", systemImage: "externaldrive")
+            }
             ShareLink(item: store.exportedBackup, subject: Text("Aurora Backup")) {
                 Label("Export Aurora Backup", systemImage: "square.and.arrow.up")
             }
@@ -534,9 +545,18 @@ struct TabCustomizationView: View {
 struct BackupRestoreView: View {
     @ObservedObject var store: AuroraStore
     @State private var text = ""
+    @State private var isOpeningFile = false
+    @State private var isConfirmingRestore = false
+    @State private var preview: AuroraStore.BackupDocument?
+    @State private var message: String?
 
     var body: some View {
         Form {
+            Section {
+                Button { isOpeningFile = true } label: {
+                    Label("Open Backup File", systemImage: "folder")
+                }
+            }
             Section {
                 TextEditor(text: $text)
                     .font(.system(.caption, design: .monospaced))
@@ -544,13 +564,45 @@ struct BackupRestoreView: View {
             } header: {
                 Text("Backup JSON")
             } footer: {
-                Text("Paste an Aurora backup exported from this or another device.")
+                Text("Open or paste an Aurora backup exported from this or another device.")
             }
 
-            Button("Restore Backup") {
-                _ = store.importBackup(text)
+            if let preview {
+                Section("Backup Contents") {
+                    LabeledContent("Created", value: preview.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    LabeledContent("Repositories", value: "\(preview.sources.count)")
+                    LabeledContent("Bookmarks", value: "\(preview.library.bookmarks.count)")
+                    LabeledContent("Installed package list", value: "\(preview.installedPackages.count)")
+                    Text("Restores sources, preferences and library data. The installed package list is a reference; packages are not automatically installed.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            } else if !text.isEmpty {
+                Text("This is not a readable Aurora backup.").foregroundStyle(.orange)
             }
-            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            if let message { Text(message).font(.footnote) }
+            Button("Restore Backup") { isConfirmingRestore = true }
+                .disabled(preview == nil || store.refreshState.isRefreshing)
+        }
+        .onChange(of: text) { value in
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            preview = try? decoder.decode(AuroraStore.BackupDocument.self, from: Data(value.utf8))
+            message = nil
+        }
+        .fileImporter(isPresented: $isOpeningFile, allowedContentTypes: [.data]) { result in
+            do {
+                text = try TextTransferDocument.readText(from: result.get())
+            } catch {
+                message = "Could not open backup: \(error.localizedDescription)"
+            }
+        }
+        .confirmationDialog("Replace Aurora's configuration?", isPresented: $isConfirmingRestore, titleVisibility: .visible) {
+            Button("Restore Backup", role: .destructive) {
+                if store.importBackup(text) { message = "Backup restored successfully." }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your current repositories, settings, bookmarks, hidden packages and package preferences will be replaced by this backup.")
         }
         .navigationTitle("Restore Backup")
         .navigationBarTitleDisplayMode(.inline)

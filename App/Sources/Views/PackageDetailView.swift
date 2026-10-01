@@ -182,7 +182,7 @@ struct PackageDetailView: View {
                     Button("Pin to \(record.version.raw)") { store.pinVersion(record) }
                     Button("Clear hold / version pin") { store.clearPin(record.name) }
                     Divider()
-                    Button(store.isHidden(record.name) ? "Show in package lists" : "Hide from package lists") {
+                    Button(store.isHidden(record.name) ? "Show in discovery" : "Hide from discovery") {
                         store.toggleHidden(record.name)
                     }
                 } label: {

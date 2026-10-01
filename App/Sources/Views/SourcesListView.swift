@@ -16,6 +16,8 @@ struct SourcesListView: View {
     @State private var isBrowsingRepoUpdates = false
     @State private var query = ""
     @State private var filter: SourceFilter = .all
+    @State private var isExportingSources = false
+    @State private var exportDocument = TextTransferDocument(text: "")
 
     private enum SourceFilter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -142,6 +144,12 @@ struct SourcesListView: View {
             }
 
             Section("Transfer") {
+                Button {
+                    exportDocument = TextTransferDocument(text: store.exportedSources)
+                    isExportingSources = true
+                } label: {
+                    Label("Save Sources to Files", systemImage: "doc.badge.arrow.up")
+                }
                 ShareLink(item: store.exportedSources, subject: Text("Aurora Sources")) {
                     Label("Export Sources", systemImage: "square.and.arrow.up")
                 }
@@ -222,6 +230,9 @@ struct SourcesListView: View {
         }
         .sheet(isPresented: $isBrowsingRepoUpdates) {
             IOSRepoUpdatesBrowser(store: store)
+        }
+        .fileExporter(isPresented: $isExportingSources, document: exportDocument, contentType: .plainText, defaultFilename: "aurora-sources.txt") { result in
+            if case .failure(let error) = result { store.lastError = error.localizedDescription }
         }
         .confirmationDialog(
             "Restore default repositories?",
@@ -837,10 +848,25 @@ struct ImportSourcesSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var result: String?
+    @State private var isOpeningFile = false
+    @State private var preview: [RepositorySource] = []
+
+    private func alreadyAdded(_ source: RepositorySource) -> Bool {
+        store.sources.contains {
+            $0.normalizedURL.caseInsensitiveCompare(source.normalizedURL) == .orderedSame && $0.suite == source.suite
+        }
+    }
+
+    private var newCount: Int { preview.filter { !alreadyAdded($0) }.count }
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Button { isOpeningFile = true } label: {
+                        Label("Open Source File", systemImage: "folder")
+                    }
+                }
                 Section {
                     TextEditor(text: $text)
                         .frame(minHeight: 220)
@@ -851,6 +877,22 @@ struct ImportSourcesSheet: View {
                     Text("Sources")
                 } footer: {
                     Text("Paste repository URLs, APT deb lines, or Sileo deb822 source blocks (Types, URIs, Suites, Components).")
+                }
+                if !preview.isEmpty {
+                    Section {
+                        ForEach(preview.prefix(20)) { source in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(source.normalizedURL).font(.subheadline)
+                                Text(alreadyAdded(source) ? "Already added · will skip" : (source.isEnabled ? "Ready to add" : "Will add disabled"))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        if preview.count > 20 { Text("And \(preview.count - 20) more…").font(.caption) }
+                    } header: {
+                        Text("\(newCount) new · \(preview.count - newCount) already added")
+                    }
+                } else if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("No valid repositories found in this text.").foregroundStyle(.orange)
                 }
                 if let result {
                     Section { Text(result).font(.footnote).foregroundColor(.secondary) }
@@ -866,8 +908,19 @@ struct ImportSourcesSheet: View {
                         result = "Added \(outcome.added); skipped \(outcome.skipped)."
                         if outcome.added > 0 { dismiss() }
                     }
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(newCount == 0)
                 }
+            }
+        }
+        .onChange(of: text) { value in
+            preview = SourceInterchange.parse(value)
+            result = nil
+        }
+        .fileImporter(isPresented: $isOpeningFile, allowedContentTypes: [.data]) { outcome in
+            do {
+                text = try TextTransferDocument.readText(from: outcome.get())
+            } catch {
+                result = "Could not open source file: \(error.localizedDescription)"
             }
         }
     }
