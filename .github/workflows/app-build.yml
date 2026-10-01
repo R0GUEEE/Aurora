@@ -67,6 +67,16 @@ jobs:
           set -euo pipefail
           xcodegen generate --spec App/project.yml --project App
 
+      - name: Inspect the generated project
+        run: |
+          set -euo pipefail
+          ls -la App/Aurora.xcodeproj
+          echo "--- objectVersion / package references ---"
+          head -8 App/Aurora.xcodeproj/project.pbxproj
+          grep -n -m5 -e 'XCLocalSwiftPackageReference' -e 'relativePath' App/Aurora.xcodeproj/project.pbxproj || true
+          echo "--- targets and schemes xcodebuild can see ---"
+          xcodebuild -list -project App/Aurora.xcodeproj
+
       - name: Build the app bundle
         run: |
           set -euo pipefail

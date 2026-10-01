@@ -79,8 +79,16 @@ jobs:
           command -v dpkg-deb >/dev/null 2>&1 || { echo "::error::dpkg-deb is missing"; exit 1; }
           cp -R Tests/AuroraCoreTests/Fixtures /tmp/fixtures-before
           python3 Tools/make_fixtures.py >/dev/null
-          diff -r /tmp/fixtures-before Tests/AuroraCoreTests/Fixtures
-          echo "fixtures are reproducible
+          # The .deb is byte-reproducible on one dpkg build, not across dpkg
+          # versions, so its bytes are excluded and its contents compared
+          # structurally instead. The text fixtures must match exactly.
+          diff -r -x '*.deb' /tmp/fixtures-before Tests/AuroraCoreTests/Fixtures
+          dpkg-deb -c /tmp/fixtures-before/packages/aurora-fixture_1.2.3-1_iphoneos-arm64.deb \
+            | sed 's/  *[0-9][0-9]* / SIZE /' > /tmp/before.listing
+          dpkg-deb -c Tests/AuroraCoreTests/Fixtures/packages/aurora-fixture_1.2.3-1_iphoneos-arm64.deb \
+            | sed 's/  *[0-9][0-9]* / SIZE /' > /tmp/after.listing
+          diff -u /tmp/before.listing /tmp/after.listing
+          echo "fixtures are reproducible"
 
       - name: Verify the version oracle still agrees with dpkg
         run: |
