@@ -43,7 +43,7 @@ final class UpgradePlannerTests: XCTestCase {
         let plan = try planner(policy).plan()
         XCTAssertTrue(plan.upgradable.isEmpty, "a hold must keep the package out of the update list")
         XCTAssertEqual(plan.held, ["foo-app"])
-        XCTAssertEqual(plan.summary, "1 held")
+        XCTAssertEqual(plan.summary, "1 held back")
     }
 
     func testHeldPackageIsUpgradedWhenExplicitlyAsked() throws {
@@ -78,12 +78,15 @@ final class UpgradePlannerTests: XCTestCase {
     }
 
     func testPinnedBackwardsIsReportedRatherThanSilentlyIgnored() throws {
-        // Pin foo-app to an older version than the installed one: the planner must
-        // say so instead of pretending there is nothing to do.
+        // Pin foo-app to a version that is not what is installed: the planner must
+        // say so instead of pretending there is nothing to do the moment the pin
+        // and the device disagree.
         var policy = PackagePolicy.default
-        policy.pin(.version("1.9.0-1"), for: "foo-app")
+        policy.pin(.version("2.0.0-1"), for: "foo-app")
         let plan = try planner(policy).plan()
-        XCTAssertTrue(plan.upgradable.isEmpty)
+        XCTAssertTrue(plan.upgradable.isEmpty, "the pin allows exactly one version and it is not the installed one")
         XCTAssertEqual(plan.pinnedBackwards.map(\.name), ["foo-app"])
+        XCTAssertEqual(plan.pinnedBackwards.first?.installed, "1.9.0-1")
+        XCTAssertEqual(plan.pinnedBackwards.first?.allowed, "2.0.0-1")
     }
 }

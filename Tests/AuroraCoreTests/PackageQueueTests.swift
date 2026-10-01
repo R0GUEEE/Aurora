@@ -49,8 +49,11 @@ final class PackageQueueTests: XCTestCase {
         XCTAssertEqual(purge.action(for: "foo")?.kind, .purge)
         XCTAssertNil(purge.action(for: "foo")?.record)
 
+        // An install of `foo` and a removal of `foo` are the same subject: the
+        // removal wins, because it is the later decision about that package.
         var removalReplacesInstall = PackageQueue()
         removalReplacesInstall.stage(.install(record("foo", "1.0-1")))
+        XCTAssertEqual(removalReplacesInstall.count, 1)
         removalReplacesInstall.stage(.remove(name: "foo", purge: false))
         XCTAssertEqual(removalReplacesInstall.count, 1)
         XCTAssertEqual(removalReplacesInstall.action(for: "foo"), .remove(name: "foo", purge: false))

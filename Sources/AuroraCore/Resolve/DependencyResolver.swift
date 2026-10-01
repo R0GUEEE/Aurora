@@ -434,7 +434,14 @@ private final class Resolution {
     /// highest one available for *every* architecture involved; if that would mean
     /// going backwards, the set is left alone and reported instead.
     private func alignMultiArchSame() {
-        let names = Set(target.all.filter(\.isMultiArchSame).map(\.name))
+        // Only packages the transaction is already changing. Aligning everything
+        // installed would turn "install one new package" into a plan that touches
+        // every co-installable library on the device.
+        let names = Set(
+            target.all
+                .filter { $0.isMultiArchSame && (explicitNames.contains($0.name) || pulledInNames.contains($0.name)) }
+                .map(\.name)
+        )
         for name in names {
             let instances = target.instances(of: name).filter(\.isMultiArchSame)
             guard instances.count > 1 else { continue }

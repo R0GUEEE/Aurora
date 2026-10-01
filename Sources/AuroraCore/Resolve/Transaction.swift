@@ -24,9 +24,16 @@ public enum PackageAction: Hashable, Sendable {
     /// What the queue de-duplicates on. A name for a removal, an *instance* for
     /// anything else, so `foo:iphoneos-arm64` and `foo:iphoneos-arm` can both be
     /// queued — which is exactly what `Multi-Arch: same` packages need.
+    ///
+    /// The instance is remembered at staging time and does not change when a
+    /// later action replaces the record, so that replacing `foo:arm` does not
+    /// silently retarget the entry to `foo:arm64`.
     public var key: String {
         record?.instanceKey ?? name
     }
+
+    // The instance a queued action targets lives on `PackageQueue`, which owns
+    // the staging history; the action itself is a value with no memory.
 
     public var record: PackageRecord? {
         switch self {
@@ -98,27 +105,57 @@ public enum PackageAction: Hashable, Sendable {
 public struct PackageQueue: Hashable, Sendable {
 
     public private(set) var actions: [PackageAction]
+    /// The instance each staged action targets, captured when it was staged.
+    private var instances: [String: String]
 
     public init(actions: [PackageAction] = []) {
         self.actions = actions
+        self.instances = Dictionary(
+            actions.map { ($0.record?.instanceKey ?? $0.name, $0.record?.instanceKey ?? $0.name) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    /// The instance key this action targets.
+    func instanceKey(for action: PackageAction) -> String {
+        let raw = action.record?.instanceKey ?? action.name
+        return instances[raw] ?? raw
     }
 
     public var isEmpty: Bool { actions.isEmpty }
     public var count: Int { actions.count }
 
     /// One action per instance: staging a second action for the same package and
-    /// architecture replaces the first, which is what a queue UI expects.
+    /// architecture replaces the first, which is what a queue UI expects. A
+    /// package staged for two architectures keeps both entries, because they are
+    /// two different installations.
     public mutating func stage(_ action: PackageAction) {
-        actions.removeAll { $0.key == action.key }
+        let instance = action.record?.instanceKey ?? action.name
+        // A removal speaks about the package by name, so it replaces every
+        // instance staged for it; anything else replaces only its own instance,
+        // which is what lets a co-installable package be queued per architecture.
+        actions.removeAll { staged in
+            if action.record == nil { return staged.name == action.name }
+            return instanceKey(for: staged) == instance
+        }
+        if action.record != nil {
+            instances[instance] = instance
+        }
+        for key in instances.keys where !actions.contains(where: { instanceKey(for: $0) == key }) {
+            instances.removeValue(forKey: key)
+        }
         actions.append(action)
     }
 
     public mutating func unstage(name: String) {
-        actions.removeAll { $0.name == name }
+        actions.removeAll { action in
+            if instanceKey(for: action) == name { return true }
+            return action.name == name
+        }
     }
 
-    public mutating func unstage(key: String) {
-        actions.removeAll { $0.key == key }
+    public mutating func unstage(instanceKey key: String) {
+        actions.removeAll { instanceKey(for: $0) == key }
     }
 
     public mutating func removeAll() {

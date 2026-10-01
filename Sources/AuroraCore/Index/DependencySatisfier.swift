@@ -42,11 +42,24 @@ public struct DependencySatisfier: Sendable {
         /// 0 = exactly the architecture asked for (or architecture-independent),
         /// 1 = acceptable but indirect (foreign instance, or `:any`).
         public let architectureRank: Int
+        /// 0 = the real package, 1 = satisfies the name through `Provides`.
+        public let providedRank: Int
+
+        public init(record: PackageRecord, architectureRank: Int, providedRank: Int = 0) {
+            self.record = record
+            self.architectureRank = architectureRank
+            self.providedRank = providedRank
+        }
     }
 
     // MARK: - Architecture
 
     /// Whether this record's architecture is one Aurora may install at all.
+    ///
+    /// Stricter than "not the device architecture": a record is only installable
+    /// if the client actually has that architecture, either as its own or as an
+    /// explicitly allowed foreign one. Letting anything through here is how a
+    /// package built for another platform gets installed.
     public func isInstallableArchitecture(_ architecture: String) -> Bool {
         if architecture == "all" { return true }
         if architecture == nativeArchitecture { return true }
@@ -152,7 +165,11 @@ public struct DependencySatisfier: Sendable {
                    required != candidate.version.raw {
                     continue
                 }
-                ranked.append(Ranked(record: candidate, architectureRank: rank))
+                ranked.append(Ranked(
+                    record: candidate,
+                    architectureRank: rank,
+                    providedRank: candidate.name == term.name ? 0 : 1
+                ))
             }
             // A satisfier for this alternative exists: alternatives are a
             // preference order, so the later ones are not candidates at all.
@@ -185,6 +202,10 @@ public struct DependencySatisfier: Sendable {
         if lhs.architectureRank != rhs.architectureRank {
             return lhs.architectureRank < rhs.architectureRank
         }
+        // A real package of that name beats one that merely provides it: a virtual
+        // package is a stand-in, and installing the stand-in when the real thing is
+        // available is never what was meant.
+        if lhs.providedRank != rhs.providedRank { return lhs.providedRank < rhs.providedRank }
         let lhsPriority = policy.priority(of: lhs.record)
         let rhsPriority = policy.priority(of: rhs.record)
         if lhsPriority != rhsPriority { return lhsPriority > rhsPriority }

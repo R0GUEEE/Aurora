@@ -84,11 +84,15 @@ public struct PackagePolicy: Sendable, Hashable, Codable {
 
     public func pin(for name: String) -> Pin? { pins[name] }
 
-    /// Whether a name may be selected at all.
+    /// Whether a name may be selected at all: everything is allowed unless a pin
+    /// forbids it. An unmentioned package is allowed, not "pinned to allow".
     public func allows(_ name: String) -> Bool {
-        if case .forbid = pins[name] { return false }
+        if case .forbid? = pins[name] { return false }
         return true
     }
+
+    /// Whether this name has any pin at all.
+    public func hasPin(_ name: String) -> Bool { pins[name] != nil }
 
     /// The only version that may be selected for this name, when pinned.
     public func requiredVersion(for name: String) -> String? {
