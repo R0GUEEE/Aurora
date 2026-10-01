@@ -226,16 +226,35 @@ final class AuroraStore: ObservableObject {
 
     /// Adds a repository, returning a message to show the user, or nil on success.
     @discardableResult
-    func addSource(urlText: String, suite: String, name: String) -> String? {
+    func addSource(urlText: String, suite: String = "./", name: String) -> String? {
         let trimmedURL = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedURL.isEmpty else { return "Enter a repository URL." }
 
-        let trimmedSuite = suite.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = URL(string: trimmedURL)?.host?.lowercased()
+        // Match Sileo's URL-first model: ordinary jailbreak repos are flat.
+        // Dist metadata stays internal and is synthesized only for known repos.
+        let detectedSuite: String
+        let detectedComponents: [String]
+        if host == "apt.procurs.us" {
+            // Keep the existing Procursus suite when editing/re-adding it. Fresh
+            // installs use SourceStore's device/bootstrap default.
+            detectedSuite = sources.first(where: { $0.normalizedURL.lowercased() == "https://apt.procurs.us" })?.suite
+                ?? SourceStore.builtInSources.first(where: { $0.normalizedURL.lowercased() == "https://apt.procurs.us" })?.suite
+                ?? "iphoneos-arm64/1800"
+            detectedComponents = ["main"]
+        } else if ["apt.bigboss.org", "apt.thebigboss.org", "thebigboss.org", "bigboss.org"].contains(host ?? "") {
+            detectedSuite = "stable"
+            detectedComponents = ["main"]
+        } else {
+            detectedSuite = "./"
+            detectedComponents = []
+        }
         let candidate = RepositorySource(
             name: trimmedName.isEmpty ? Self.derivedName(for: trimmedURL) : trimmedName,
             url: trimmedURL,
-            suite: trimmedSuite.isEmpty ? "./" : trimmedSuite
+            suite: detectedSuite,
+            components: detectedComponents
         )
         guard candidate.isValid else {
             return "\(trimmedURL) is not a usable repository URL: it needs a scheme (http:// or https://) and a host."
