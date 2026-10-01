@@ -20,7 +20,34 @@ struct PackageActivity: Codable, Identifiable, Hashable {
 
 struct UserLibraryState: Codable {
     var bookmarks: Set<String> = []
+    var hiddenPackages: Set<String> = []
+    /// package|version|origin -> first time Aurora observed it.
+    var firstSeen: [String: Date] = [:]
     var history: [PackageActivity] = []
+
+    init(
+        bookmarks: Set<String> = [],
+        hiddenPackages: Set<String> = [],
+        firstSeen: [String: Date] = [:],
+        history: [PackageActivity] = []
+    ) {
+        self.bookmarks = bookmarks
+        self.hiddenPackages = hiddenPackages
+        self.firstSeen = firstSeen
+        self.history = history
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bookmarks, hiddenPackages, firstSeen, history
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        bookmarks = (try? c.decode(Set<String>.self, forKey: .bookmarks)) ?? []
+        hiddenPackages = (try? c.decode(Set<String>.self, forKey: .hiddenPackages)) ?? []
+        firstSeen = (try? c.decode([String: Date].self, forKey: .firstSeen)) ?? [:]
+        history = (try? c.decode([PackageActivity].self, forKey: .history)) ?? []
+    }
 
     static func load() -> UserLibraryState {
         guard let data = try? Data(contentsOf: url),
