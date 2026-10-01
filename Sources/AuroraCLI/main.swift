@@ -471,6 +471,9 @@ func apply(_ plan: TransactionPlan, options: Options, extraPaths: [String: Strin
             case .removing(let package): write("  · removing \(package)\n")
             case .unpacking(let package): write("  · unpacking \(package)\n")
             case .configuring(let package): write("  · configuring \(package)\n")
+            case .dpkgProgress(let package, let status, _):
+                if let package { write("  · \(status): \(package)\n") }
+                else { write("  · \(status)\n") }
             case .output(let text):
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { write("      \(trimmed)\n") }
