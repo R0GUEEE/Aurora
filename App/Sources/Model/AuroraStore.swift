@@ -569,7 +569,7 @@ final class AuroraStore: ObservableObject {
         var next = 0
 
         await withTaskGroup(of: RefreshOutcome.self) { group in
-            func enqueue(_ source: RepositorySource) {
+            @MainActor func enqueue(_ source: RepositorySource) {
                 repositoryRefreshActivity[source.id] = RepositoryRefreshActivity(
                     id: source.id, phase: .refreshing, startedAt: Date(), finishedAt: nil, message: nil
                 )
