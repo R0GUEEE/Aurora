@@ -580,7 +580,7 @@ func localQueue(path: String, options: Options) throws -> (queue: PackageQueue, 
     } else {
         queue.stage(.install(local.record))
     }
-    return (queue, [local.record.name: local.path])
+    return (queue, [InstallEngine.archiveKey(for: local.record): local.path])
 }
 
 func commandInstallDeb(_ arguments: [String], options: Options) throws {
