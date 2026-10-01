@@ -320,7 +320,7 @@ public actor RepositoryClient {
                         }
                         return nil
                     }
-                    if let (path, format, parsed, scanWarnings) = winner {
+                    if let (_, format, parsed, scanWarnings) = winner {
                         warnings.append(contentsOf: scanWarnings)
                         tried.append(contentsOf: paths.map(\.0))
                         records.append(contentsOf: parsed)

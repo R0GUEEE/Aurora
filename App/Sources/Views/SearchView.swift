@@ -9,6 +9,15 @@ struct SearchView: View {
         case relevance = "Relevance"
         case name = "Name"
         case newest = "Newest Version"
+        case downloadSize = "Download Size"
+        case installedSize = "Installed Size"
+        var id: String { rawValue }
+    }
+
+    private enum CommercialFilter: String, CaseIterable, Identifiable {
+        case all = "All Packages"
+        case free = "Free Only"
+        case commercial = "Commercial Only"
         var id: String { rawValue }
     }
 
@@ -19,11 +28,34 @@ struct SearchView: View {
     @State private var installedOnly = false
     @State private var updatesOnly = false
     @State private var compatibleOnly = false
+    @State private var bookmarkedOnly = false
+    @State private var verifiedSourcesOnly = false
+    @State private var depictionOnly = false
+    @State private var commercial: CommercialFilter = .all
     @State private var sort: SearchSort = .relevance
     @AppStorage("aurora.search.recents") private var recentStorage = ""
 
     var body: some View {
         List {
+            if hasFilters {
+                Section {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 7) {
+                            ForEach(Array(activeFilterLabels.indices), id: \.self) { index in
+                                Text(activeFilterLabels[index])
+                                    .font(.caption)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Capsule().fill(Color(.secondarySystemBackground)))
+                            }
+                            Button("Clear") { clearFilters() }
+                                .font(.caption)
+                        }
+                    }
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            }
+
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if !recentQueries.isEmpty {
                     Section("Recent Searches") {
@@ -38,8 +70,11 @@ struct SearchView: View {
                     }
                 }
                 Section {
-                    EmptyMessage(symbol: "magnifyingglass", title: "Search",
-                                 message: "Search package IDs, names, descriptions and sections across all loaded repositories.")
+                    EmptyMessage(
+                        symbol: "magnifyingglass",
+                        title: "Search",
+                        message: "Search package IDs, names, descriptions and sections. Filters can narrow results by repository, architecture, install state, trust, bookmarks and package type."
+                    )
                 }
             } else if results.isEmpty {
                 Section {
@@ -50,10 +85,34 @@ struct SearchView: View {
                 Section {
                     ForEach(results) { record in
                         NavigationLink(value: record) {
-                            PackageRow(record: record, state: store.state(for: record),
-                                       showIcon: store.settings.showPackageIcons,
-                                       compact: store.settings.compactPackageRows,
-                                       showDescription: store.settings.showPackageDescriptions)
+                            PackageRow(
+                                record: record,
+                                state: store.state(for: record),
+                                showIcon: store.settings.showPackageIcons,
+                                compact: store.settings.compactPackageRows,
+                                showDescription: store.settings.showPackageDescriptions
+                            )
+                        }
+                        .swipeActions(edge: .leading) {
+                            if !store.state(for: record).isInstalled {
+                                Button {
+                                    store.stage(store.defaultAction(for: record))
+                                } label: {
+                                    Label("Queue", systemImage: "tray.and.arrow.down")
+                                }
+                                .tint(.blue)
+                            }
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button {
+                                store.toggleBookmark(record.name)
+                            } label: {
+                                Label(
+                                    store.isBookmarked(record.name) ? "Unbookmark" : "Bookmark",
+                                    systemImage: store.isBookmarked(record.name) ? "bookmark.slash" : "bookmark"
+                                )
+                            }
+                            .tint(.orange)
                         }
                     }
                 } header: {
@@ -72,30 +131,47 @@ struct SearchView: View {
                         Toggle("Installed only", isOn: $installedOnly)
                         Toggle("Updates only", isOn: $updatesOnly)
                         Toggle("Compatible only", isOn: $compatibleOnly)
+                        Toggle("Bookmarked only", isOn: $bookmarkedOnly)
                     }
+
+                    Section("Package") {
+                        Picker("Commercial", selection: $commercial) {
+                            ForEach(CommercialFilter.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                        Toggle("Has depiction", isOn: $depictionOnly)
+                    }
+
+                    Section("Trust") {
+                        Toggle("Verified repositories only", isOn: $verifiedSourcesOnly)
+                    }
+
                     Section("Section") {
                         Button("All Sections") { section = nil }
                         ForEach(store.sectionNames, id: \.self) { value in
                             Button(value) { section = value }
                         }
                     }
+
                     Section("Repository") {
                         Button("All Repositories") { sourceID = nil }
                         ForEach(store.sources.filter(\.isEnabled)) { source in
                             Button(source.name) { sourceID = source.id }
                         }
                     }
+
                     Section("Architecture") {
                         Button("All Architectures") { architecture = nil }
                         ForEach(architectures, id: \.self) { value in
                             Button(value) { architecture = value }
                         }
                     }
+
                     Section("Sort") {
                         Picker("Sort", selection: $sort) {
                             ForEach(SearchSort.allCases) { Text($0.rawValue).tag($0) }
                         }
                     }
+
                     if hasFilters {
                         Divider()
                         Button("Clear Filters") { clearFilters() }
@@ -114,10 +190,19 @@ struct SearchView: View {
 
     private var results: [PackageRecord] {
         var values = store.searchResults(
-            query: query, section: section, sourceID: sourceID,
-            architecture: architecture, installedOnly: installedOnly,
-            updatesOnly: updatesOnly, compatibleOnly: compatibleOnly
+            query: query,
+            section: section,
+            sourceID: sourceID,
+            architecture: architecture,
+            installedOnly: installedOnly,
+            updatesOnly: updatesOnly,
+            compatibleOnly: compatibleOnly,
+            bookmarkedOnly: bookmarkedOnly,
+            verifiedSourcesOnly: verifiedSourcesOnly,
+            depictionOnly: depictionOnly,
+            commercial: commercial == .all ? nil : commercial == .commercial
         )
+
         switch sort {
         case .relevance:
             break
@@ -129,12 +214,55 @@ struct SearchView: View {
                 if order != 0 { return order > 0 }
                 return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
             }
+        case .downloadSize:
+            values.sort {
+                let lhs = $0.downloadSize ?? -1
+                let rhs = $1.downloadSize ?? -1
+                if lhs != rhs { return lhs > rhs }
+                return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+        case .installedSize:
+            values.sort {
+                let lhs = $0.installedSize ?? -1
+                let rhs = $1.installedSize ?? -1
+                if lhs != rhs { return lhs > rhs }
+                return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
         }
         return values
     }
 
+
     private var hasFilters: Bool {
-        section != nil || sourceID != nil || architecture != nil || installedOnly || updatesOnly || compatibleOnly || sort != .relevance
+        section != nil
+            || sourceID != nil
+            || architecture != nil
+            || installedOnly
+            || updatesOnly
+            || compatibleOnly
+            || bookmarkedOnly
+            || verifiedSourcesOnly
+            || depictionOnly
+            || commercial != .all
+            || sort != .relevance
+    }
+
+    private var activeFilterLabels: [String] {
+        var labels: [String] = []
+        if installedOnly { labels.append("Installed") }
+        if updatesOnly { labels.append("Updates") }
+        if compatibleOnly { labels.append("Compatible") }
+        if bookmarkedOnly { labels.append("Bookmarked") }
+        if verifiedSourcesOnly { labels.append("Verified repo") }
+        if depictionOnly { labels.append("Depiction") }
+        if commercial != .all { labels.append(commercial.rawValue) }
+        if let section { labels.append(section) }
+        if let architecture { labels.append(architecture) }
+        if let sourceID, let source = store.sources.first(where: { $0.id == sourceID }) {
+            labels.append(source.name)
+        }
+        if sort != .relevance { labels.append("Sort: \(sort.rawValue)") }
+        return labels
     }
 
     private var recentQueries: [String] {
@@ -146,7 +274,7 @@ struct SearchView: View {
         guard !value.isEmpty else { return }
         var items = recentQueries.filter { $0.caseInsensitiveCompare(value) != .orderedSame }
         items.insert(value, at: 0)
-        recentStorage = items.prefix(8).joined(separator: "\n")
+        recentStorage = items.prefix(10).joined(separator: "\n")
     }
 
     private func clearFilters() {
@@ -156,6 +284,10 @@ struct SearchView: View {
         installedOnly = false
         updatesOnly = false
         compatibleOnly = false
+        bookmarkedOnly = false
+        verifiedSourcesOnly = false
+        depictionOnly = false
+        commercial = .all
         sort = .relevance
     }
 }

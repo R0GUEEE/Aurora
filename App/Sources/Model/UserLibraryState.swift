@@ -18,9 +18,25 @@ struct PackageActivity: Codable, Identifiable, Hashable {
     }
 }
 
+struct PackageVisit: Codable, Identifiable, Hashable {
+    let package: String
+    let date: Date
+
+    var id: String { package }
+
+    init(package: String, date: Date = Date()) {
+        self.package = package
+        self.date = date
+    }
+}
+
 struct UserLibraryState: Codable {
     var bookmarks: Set<String> = []
     var hiddenPackages: Set<String> = []
+    /// User-defined named package collections.
+    var collections: [String: Set<String>] = [:]
+    /// Most recently viewed package IDs, newest first and de-duplicated by package.
+    var recentViews: [PackageVisit] = []
     /// package|version|origin -> first time Aurora observed it.
     var firstSeen: [String: Date] = [:]
     var history: [PackageActivity] = []
@@ -28,23 +44,29 @@ struct UserLibraryState: Codable {
     init(
         bookmarks: Set<String> = [],
         hiddenPackages: Set<String> = [],
+        collections: [String: Set<String>] = [:],
+        recentViews: [PackageVisit] = [],
         firstSeen: [String: Date] = [:],
         history: [PackageActivity] = []
     ) {
         self.bookmarks = bookmarks
         self.hiddenPackages = hiddenPackages
+        self.collections = collections
+        self.recentViews = recentViews
         self.firstSeen = firstSeen
         self.history = history
     }
 
     private enum CodingKeys: String, CodingKey {
-        case bookmarks, hiddenPackages, firstSeen, history
+        case bookmarks, hiddenPackages, collections, recentViews, firstSeen, history
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         bookmarks = (try? c.decode(Set<String>.self, forKey: .bookmarks)) ?? []
         hiddenPackages = (try? c.decode(Set<String>.self, forKey: .hiddenPackages)) ?? []
+        collections = (try? c.decode([String: Set<String>].self, forKey: .collections)) ?? [:]
+        recentViews = (try? c.decode([PackageVisit].self, forKey: .recentViews)) ?? []
         firstSeen = (try? c.decode([String: Date].self, forKey: .firstSeen)) ?? [:]
         history = (try? c.decode([PackageActivity].self, forKey: .history)) ?? []
     }
