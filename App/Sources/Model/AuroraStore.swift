@@ -916,11 +916,12 @@ final class AuroraStore: ObservableObject {
             installed: installed,
             policy: makeResolver().policy
         ).plan()
+        upgradableNames = Set(upgradePlan.upgradable.map(\.name))
     }
 
     /// Whether policy and architecture rules permit a newer candidate.
     func hasUpdate(named name: String) -> Bool {
-        upgradePlan.upgradable.contains { $0.name == name }
+        upgradableNames.contains(name)
     }
 
     /// The action a user expects when they tap Install on `record`.
