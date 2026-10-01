@@ -192,7 +192,7 @@ public struct PackageQueue: Hashable, Sendable {
     }
 
     public func action(for name: String) -> PackageAction? {
-        actions.first { $0.name == name }
+        actions.last { $0.name == name }
     }
 
     public func isStaged(_ name: String) -> Bool {
