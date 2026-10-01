@@ -143,6 +143,7 @@ final class AuroraStore: ObservableObject {
     private let settingsStore: SettingsStore
     private let policyStore: PackagePolicy.Store
     private var hasStarted = false
+    private var lastAutomaticRefresh: Date?
     private var upgradableNames: Set<String> = []
 
     // MARK: - Lifecycle
@@ -190,7 +191,21 @@ final class AuroraStore: ObservableObject {
         }
         if settings.autoRefreshOnLaunch {
             await refreshAll(forceReload: false)
+            lastAutomaticRefresh = Date()
         }
+    }
+
+    /// Called when the app becomes active. This is intentionally foreground
+    /// scheduling rather than pretending iOS guarantees background execution to
+    /// a jailbreak package manager.
+    func refreshIfStale() async {
+        guard settings.refreshOnForeground, !refreshState.isRefreshing else { return }
+        let interval = TimeInterval(settings.foregroundRefreshIntervalMinutes * 60)
+        let newestSourceRefresh = sources.compactMap(\.lastRefreshed).max()
+        let baseline = lastAutomaticRefresh ?? newestSourceRefresh
+        guard baseline == nil || Date().timeIntervalSince(baseline!) >= interval else { return }
+        await refreshAll(forceReload: false)
+        lastAutomaticRefresh = Date()
     }
 
     // MARK: - Jailbreak facts used by the UI
