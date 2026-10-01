@@ -91,6 +91,9 @@ struct AuroraSettings: Codable, Equatable {
     /// Offer an explicit best-effort conversion action for legacy rootful packages.
     var allowRootfulConversion: Bool
     var depictionPreference: DepictionPreference
+    var autoRefreshOnLaunch: Bool
+    var showPackageIcons: Bool
+    var compactPackageRows: Bool
     var tabs: [AppTab]
 
     init(
@@ -99,6 +102,9 @@ struct AuroraSettings: Codable, Equatable {
         showOnlyRootlessCompatible: Bool = true,
         allowRootfulConversion: Bool = false,
         depictionPreference: DepictionPreference = .native,
+        autoRefreshOnLaunch: Bool = true,
+        showPackageIcons: Bool = true,
+        compactPackageRows: Bool = false,
         tabs: [AppTab] = AppTab.defaultTabs
     ) {
         self.autoRefreshOnLaunch = autoRefreshOnLaunch
@@ -106,6 +112,9 @@ struct AuroraSettings: Codable, Equatable {
         self.showOnlyRootlessCompatible = showOnlyRootlessCompatible
         self.allowRootfulConversion = allowRootfulConversion
         self.depictionPreference = depictionPreference
+        self.autoRefreshOnLaunch = autoRefreshOnLaunch
+        self.showPackageIcons = showPackageIcons
+        self.compactPackageRows = compactPackageRows
         self.tabs = Self.sanitizedTabs(tabs)
     }
 
@@ -115,6 +124,9 @@ struct AuroraSettings: Codable, Equatable {
         case showOnlyRootlessCompatible
         case allowRootfulConversion
         case depictionPreference
+        case autoRefreshOnLaunch
+        case showPackageIcons
+        case compactPackageRows
         case tabs
     }
 
@@ -130,6 +142,9 @@ struct AuroraSettings: Codable, Equatable {
             (try? container.decode(Bool.self, forKey: .allowRootfulConversion)) ?? false
         self.depictionPreference =
             (try? container.decode(DepictionPreference.self, forKey: .depictionPreference)) ?? .native
+        self.autoRefreshOnLaunch = (try? container.decode(Bool.self, forKey: .autoRefreshOnLaunch)) ?? true
+        self.showPackageIcons = (try? container.decode(Bool.self, forKey: .showPackageIcons)) ?? true
+        self.compactPackageRows = (try? container.decode(Bool.self, forKey: .compactPackageRows)) ?? false
         let decodedTabs = (try? container.decode([AppTab].self, forKey: .tabs)) ?? AppTab.defaultTabs
         self.tabs = Self.migratedTabs(decodedTabs)
     }
