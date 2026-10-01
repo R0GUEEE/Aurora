@@ -23,6 +23,34 @@ final class SourceStoreTests: XCTestCase {
         XCTAssertFalse(loaded.isEnabled)
     }
 
+
+    func testSavingPreservesArchitectureModifiers() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SourceStore(path: directory.appendingPathComponent("sileo.sources").path)
+        let source = RepositorySource(
+            name: "Architecture Modifiers",
+            url: "https://repo.example.test",
+            suite: "stable",
+            components: ["main"],
+            architectureAdditions: ["all"],
+            architectureRemovals: ["iphoneos-arm"]
+        )
+
+        try store.save(RepositoryList(sources: [source]))
+        let savedText = try String(contentsOfFile: store.path, encoding: .utf8)
+        XCTAssertTrue(savedText.contains("Architectures-Add: all"))
+        XCTAssertTrue(savedText.contains("Architectures-Remove: iphoneos-arm"))
+
+        let loaded = try XCTUnwrap(store.load().list.sources.first)
+        XCTAssertEqual(loaded.architectureAdditions ?? [], ["all"])
+        XCTAssertEqual(loaded.architectureRemovals ?? [], ["iphoneos-arm"])
+        XCTAssertEqual(
+            loaded.effectiveArchitectures(defaults: ["iphoneos-arm64", "iphoneos-arm"]),
+            ["iphoneos-arm64", "all"]
+        )
+    }
+
     func testLoadingExternalSileoSourcesExpandsURIsAndSuites() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
