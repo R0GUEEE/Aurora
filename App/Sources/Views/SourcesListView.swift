@@ -68,29 +68,7 @@ struct SourcesListView: View {
             }
 
             if store.refreshState.isRefreshing {
-                Section("Refresh Activity") {
-                    ForEach(store.sources.filter { store.repositoryRefreshActivity[$0.id] != nil }) { source in
-                        if let activity = store.repositoryRefreshActivity[source.id] {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(source.name)
-                                    Text(activity.message ?? activity.phase.rawValue)
-                                        .font(.caption2)
-                                        .foregroundColor(activity.phase == .failed ? .red : .secondary)
-                                        .lineLimit(2)
-                                }
-                                Spacer()
-                                if activity.phase == .refreshing {
-                                    ProgressView()
-                                } else {
-                                    Text(activity.phase.rawValue)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                    }
-                }
+                RefreshActivitySection(store: store)
             }
 
             Section("Repository Health") {
@@ -210,6 +188,52 @@ struct SourcesListView: View {
                     .padding(.vertical, 6)
                     .background(Capsule().fill(Color(.secondarySystemBackground)))
                     .padding(.bottom, 8)
+            }
+        }
+    }
+}
+
+
+@MainActor
+private struct RefreshActivitySection: View {
+    @ObservedObject var store: AuroraStore
+
+    private var activeSources: [RepositorySource] {
+        store.sources.filter { store.repositoryRefreshActivity[$0.id] != nil }
+    }
+
+    var body: some View {
+        Section("Refresh Activity") {
+            ForEach(activeSources) { source in
+                RefreshActivityRow(
+                    source: source,
+                    activity: store.repositoryRefreshActivity[source.id]
+                )
+            }
+        }
+    }
+}
+
+private struct RefreshActivityRow: View {
+    let source: RepositorySource
+    let activity: RepositoryRefreshActivity?
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(source.name)
+                Text(activity?.message ?? activity?.phase.rawValue ?? "Queued")
+                    .font(.caption2)
+                    .foregroundColor(activity?.phase == .failed ? .red : .secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            if activity?.phase == .refreshing {
+                ProgressView()
+            } else if let phase = activity?.phase {
+                Text(phase.rawValue)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
     }
