@@ -109,6 +109,8 @@ final class AuroraStore: ObservableObject {
     /// the queue or the indexes change, never from a view body.
     @Published private(set) var queueAnalysis = QueueAnalysis()
     @Published var settings = AuroraSettings()
+    @Published private(set) var packagePolicy = PackagePolicy.default
+    @Published private(set) var policyPersistenceError: String?
     /// A problem worth an alert. Set by any operation that can fail.
     @Published var lastError: String?
     /// A short confirmation line ("Repository added.").
@@ -118,6 +120,7 @@ final class AuroraStore: ObservableObject {
 
     private let sourceStore: SourceStore
     private let settingsStore: SettingsStore
+    private let policyStore: PackagePolicy.Store
     private var hasStarted = false
 
     // MARK: - Lifecycle
@@ -125,14 +128,20 @@ final class AuroraStore: ObservableObject {
     init(environment: JailbreakEnvironment = JailbreakEnvironment.detect()) {
         let sourceStore = SourceStore()
         let settingsStore = SettingsStore()
+        let policyStore = PackagePolicy.Store()
 
         self.environment = environment
         self.sourceStore = sourceStore
         self.settingsStore = settingsStore
+        self.policyStore = policyStore
 
         let loadedSettings = settingsStore.load()
         self.settings = loadedSettings.settings
         self.settingsPersistenceError = loadedSettings.failure
+
+        let loadedPolicy = policyStore.load()
+        self.packagePolicy = loadedPolicy.policy
+        self.policyPersistenceError = loadedPolicy.failure
 
         // A missing or corrupt sources.json is not fatal: SourceStore returns the
         // built-in repositories and tells us why.
@@ -669,6 +678,56 @@ final class AuroraStore: ObservableObject {
         if userLibrary.bookmarks.contains(name) { userLibrary.bookmarks.remove(name) }
         else { userLibrary.bookmarks.insert(name) }
         persistUserLibrary()
+    }
+
+    func isHidden(_ name: String) -> Bool { userLibrary.hiddenPackages.contains(name) }
+
+    func toggleHidden(_ name: String) {
+        if userLibrary.hiddenPackages.contains(name) { userLibrary.hiddenPackages.remove(name) }
+        else { userLibrary.hiddenPackages.insert(name) }
+        persistUserLibrary()
+        rebuildIndexes()
+    }
+
+    func isHeld(_ name: String) -> Bool { packagePolicy.isHeld(name) }
+
+    func setHeld(_ name: String, held: Bool) {
+        packagePolicy.pin(held ? .hold : nil, for: name)
+        persistPackagePolicy()
+        rebuildIndexes()
+    }
+
+    func pinVersion(_ record: PackageRecord) {
+        packagePolicy.pin(.version(record.version.raw), for: record.name)
+        persistPackagePolicy()
+        rebuildIndexes()
+    }
+
+    func clearPin(_ name: String) {
+        packagePolicy.pin(nil, for: name)
+        persistPackagePolicy()
+        rebuildIndexes()
+    }
+
+    func setSourcePriority(id: UUID, priority: Int) {
+        guard let source = sources.first(where: { $0.id == id }) else { return }
+        packagePolicy.setPriority(priority, forSource: source.normalizedURL)
+        persistPackagePolicy()
+        rebuildIndexes()
+    }
+
+    func sourcePriority(id: UUID) -> Int {
+        guard let source = sources.first(where: { $0.id == id }) else { return PackagePolicy.defaultPriority }
+        return packagePolicy.priority(forSource: source.normalizedURL)
+    }
+
+    private func persistPackagePolicy() {
+        do {
+            try policyStore.save(packagePolicy)
+            policyPersistenceError = nil
+        } catch {
+            policyPersistenceError = "Package policy could not be saved (\(AuroraFormat.message(for: error)))."
+        }
     }
 
     private func persistUserLibrary() {
