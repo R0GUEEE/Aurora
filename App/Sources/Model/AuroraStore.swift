@@ -1275,6 +1275,16 @@ final class AuroraStore: ObservableObject {
         persistSettings()
     }
 
+    func setRefreshOnForeground(_ value: Bool) {
+        settings.refreshOnForeground = value
+        persistSettings()
+    }
+
+    func setForegroundRefreshIntervalMinutes(_ value: Int) {
+        settings.foregroundRefreshIntervalMinutes = min(1440, max(5, value))
+        persistSettings()
+    }
+
     func applyPerformancePreset(_ preset: String) {
         switch preset {
         case "aggressive":
