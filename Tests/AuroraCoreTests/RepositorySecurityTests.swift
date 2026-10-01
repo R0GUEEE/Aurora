@@ -32,6 +32,40 @@ final class RepositorySecurityTests: XCTestCase {
         )
     }
 
+
+    func testPackageURLAllowsHTTPSCDNWhenStrongDigestIsPublished() throws {
+        let cdnRecord = PackageRecord(stanza: ControlStanza(fields: [
+            ControlField(name: "Package", value: "demo"),
+            ControlField(name: "Version", value: "1.0"),
+            ControlField(name: "Architecture", value: "iphoneos-arm64"),
+            ControlField(name: "Filename", value: "https://cdn.example.test/demo.deb"),
+            ControlField(name: "SHA256", value: String(repeating: "a", count: 64)),
+        ]))
+        XCTAssertEqual(
+            RepositoryClient.packageURL(cdnRecord, in: source)?.absoluteString,
+            "https://cdn.example.test/demo.deb"
+        )
+    }
+
+
+    func testPackageURLRejectsCrossOriginWithMalformedStrongDigest() {
+        let malformed = PackageRecord(stanza: ControlStanza(fields: [
+            ControlField(name: "Package", value: "demo"),
+            ControlField(name: "Version", value: "1.0"),
+            ControlField(name: "Architecture", value: "iphoneos-arm64"),
+            ControlField(name: "Filename", value: "https://cdn.example.test/demo.deb"),
+            ControlField(name: "SHA256", value: "not-a-valid-digest"),
+        ]))
+        XCTAssertNil(RepositoryClient.packageURL(malformed, in: source))
+    }
+
+    func testPackageURLRejectsCrossOriginWithoutStrongDigest() {
+        XCTAssertNil(RepositoryClient.packageURL(
+            record(filename: "https://cdn.example.test/demo.deb"),
+            in: source
+        ))
+    }
+
     func testPackageDigestIsRequiredByDefault() {
         XCTAssertTrue(RepositoryPolicy.default.requirePackageDigest)
         XCTAssertTrue(RepositoryPolicy.default.requireSignature)

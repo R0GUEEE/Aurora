@@ -18,6 +18,10 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
     public var components: [String]
     /// dpkg architecture names to fetch, e.g. `iphoneos-arm64`.
     public var architectures: [String]
+    /// APT Deb822/classic modifiers relative to the configured/default list.
+    /// Optional for backward-compatible decoding of older persisted sources.
+    public var architectureAdditions: [String]?
+    public var architectureRemovals: [String]?
     /// Armored OpenPGP keys the user trusts *in addition to* the system keyring.
     public var trustedKeys: [String]
     public var isEnabled: Bool
@@ -35,6 +39,8 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
         suite: String = "./",
         components: [String] = ["main"],
         architectures: [String] = [],
+        architectureAdditions: [String] = [],
+        architectureRemovals: [String] = [],
         trustedKeys: [String] = [],
         isEnabled: Bool = true,
         isBuiltIn: Bool = false,
@@ -48,6 +54,8 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
         self.suite = suite
         self.components = components
         self.architectures = architectures
+        self.architectureAdditions = architectureAdditions
+        self.architectureRemovals = architectureRemovals
         self.trustedKeys = trustedKeys
         self.isEnabled = isEnabled
         self.isBuiltIn = isBuiltIn
@@ -64,10 +72,33 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
         return value
     }
 
-    public var isFlat: Bool { suite == "./" || suite.hasPrefix("./") || suite.isEmpty }
+    /// Sileo-compatible flat detection. Besides the conventional "./" suite,
+    /// legacy source lines frequently use a path-like suite (for example
+    /// "stable/" or "repo/") or simply omit components entirely.
+    public func effectiveArchitectures(defaults: [String]) -> [String] {
+        var result = architectures.isEmpty ? defaults : architectures
+        result.append(contentsOf: architectureAdditions ?? [])
+        let removed = Set(architectureRemovals ?? [])
+        var seen = Set<String>()
+        return result.filter { !removed.contains($0) && seen.insert($0).inserted }
+    }
+
+    public var isFlat: Bool {
+        suite.isEmpty
+            || suite == "./"
+            || suite.hasPrefix("./")
+            || suite.hasSuffix("/")
+            || components.isEmpty
+    }
 
     public var flatPathPrefix: String {
-        suite.hasPrefix("./") ? String(suite.dropFirst(2)) : ""
+        guard isFlat else { return "" }
+        var value = suite.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value == "./" || value.isEmpty { return "" }
+        if value.hasPrefix("./") { value = String(value.dropFirst(2)) }
+        while value.hasPrefix("/") { value.removeFirst() }
+        while value.hasSuffix("/") { value.removeLast() }
+        return value
     }
 
     /// Release metadata location. Traditional dists repositories publish it under

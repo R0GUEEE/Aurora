@@ -187,15 +187,32 @@ public actor RepositoryClient {
             guard let value = URL(string: filename, relativeTo: base)?.absoluteURL else { return nil }
             resolved = value
         }
-        // Filename is repository-controlled. Do not let it direct a privileged
-        // package install to an arbitrary origin.
+        // Filename is repository-controlled. Same-origin locations are always
+        // acceptable. Real repositories also use CDN/object-storage URLs, so
+        // permit cross-origin package locations only when the package index gives
+        // Aurora a collision-resistant digest to verify after download.
         guard let base = URL(string: source.normalizedURL),
               let scheme = resolved.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              resolved.host?.lowercased() == base.host?.lowercased(),
-              resolved.port == base.port,
-              resolved.user == nil, resolved.password == nil,
-              resolved.scheme?.lowercased() == base.scheme?.lowercased() else { return nil }
+              resolved.user == nil, resolved.password == nil else { return nil }
+
+        let sameOrigin = resolved.host?.lowercased() == base.host?.lowercased()
+            && resolved.port == base.port
+            && resolved.scheme?.lowercased() == base.scheme?.lowercased()
+        if sameOrigin { return resolved }
+
+        guard scheme == "https", hasValidStrongDigest(record) else { return nil }
         return resolved
+    }
+
+    private static func hasValidStrongDigest(_ record: PackageRecord) -> Bool {
+        guard let digest = record.bestDigest, !digest.algorithm.isBroken else { return false }
+        let expectedLength: Int
+        switch digest.algorithm {
+        case .sha256: expectedLength = 64
+        case .sha512: expectedLength = 128
+        case .sha1, .md5: return false
+        }
+        return digest.hex.count == expectedLength && digest.hex.allSatisfy(\.isHexDigit)
     }
 
     private func url(_ source: RepositorySource, path: String) -> URL? {
@@ -274,7 +291,7 @@ public actor RepositoryClient {
             throw RepositoryError.signatureRequired(source: source.name, reason: rejection)
         }
 
-        let configuredArchitectures = source.architectures.isEmpty ? environment.compatibleArchitectures : source.architectures
+        let configuredArchitectures = source.effectiveArchitectures(defaults: environment.compatibleArchitectures)
         // A flat repository has one Packages file, not one per architecture.
         // Fetching it once per compatible architecture duplicates every record.
         let architectures = source.isFlat ? [configuredArchitectures.first ?? environment.architecture] : configuredArchitectures
@@ -308,10 +325,7 @@ public actor RepositoryClient {
                         guard let indexURL = url(source, path: path) else { return nil }
                         let expected: ReleaseFile.Checksum?
                         if enforceFlatManifest, let release {
-                            let prefix = source.flatPathPrefix
-                            let checksumPath = prefix.isEmpty
-                                ? path
-                                : String(path.dropFirst(min(path.count, prefix.count + 1)))
+                            let checksumPath = releaseRelativeIndexPath(path, source: source)
                             guard let checksum = release.checksum(forPath: checksumPath) else { return nil }
                             expected = checksum
                         } else {
@@ -378,24 +392,34 @@ public actor RepositoryClient {
                     // Packages discovery proceeds exactly as it does in Sileo/Zebra.
                     var expected: ReleaseFile.Checksum?
                     if let release {
-                        let checksumPath: String
+                        let checksumPath = releaseRelativeIndexPath(path, source: source)
                         if source.isFlat {
-                            let prefix = source.flatPathPrefix
-                            checksumPath = prefix.isEmpty
-                                ? path
-                                : String(path.dropFirst(min(path.count, prefix.count + 1)))
                             if signature.isVerified {
                                 expected = release.checksum(forPath: checksumPath)
                                 if expected == nil { continue }
                             }
                         } else {
-                            checksumPath = path
                             expected = release.checksum(forPath: checksumPath)
                             if expected == nil { continue }
                         }
                     }
 
-                    let outcome = await fetch(indexURL: indexURL, checksum: expected)
+                    var outcome: (data: Data?, warnings: [String])
+                    if let release, release.acquireByHash, let expected {
+                        let hashedPath = byHashPath(for: path, checksum: expected)
+                        if let hashedURL = url(source, path: hashedPath) {
+                            tried.append(hashedPath)
+                            outcome = await fetch(indexURL: hashedURL, checksum: expected)
+                            warnings.append(contentsOf: outcome.warnings)
+                            if outcome.data == nil {
+                                outcome = await fetch(indexURL: indexURL, checksum: expected)
+                            }
+                        } else {
+                            outcome = await fetch(indexURL: indexURL, checksum: expected)
+                        }
+                    } else {
+                        outcome = await fetch(indexURL: indexURL, checksum: expected)
+                    }
                     warnings.append(contentsOf: outcome.warnings)
                     guard let payload = outcome.data else { continue }
 
@@ -486,19 +510,41 @@ public actor RepositoryClient {
         } else {
             directory = "dists/\(source.suite)/\(component)/binary-\(architecture)/"
         }
-        return Self.formatPreference.map { format in
-            let suffix: String
+        var result: [(String, CompressionFormat)] = []
+        for format in Self.formatPreference {
+            let suffixes: [String]
             switch format {
-            case .plain: suffix = ""
-            case .gzip: suffix = ".gz"
-            case .xz: suffix = ".xz"
-            case .lzma: suffix = ".lzma"
-            case .bzip2: suffix = ".bz2"
-            case .zstd: suffix = ".zst"
+            case .plain: suffixes = [""]
+            case .gzip: suffixes = [".gz"]
+            case .xz: suffixes = [".xz"]
+            case .lzma: suffixes = [".lzma"]
+            case .bzip2: suffixes = [".bz2", ".bzip2"]
+            case .zstd: suffixes = [".zst", ".zstd"]
             }
-            return (directory + "Packages" + suffix, format)
+            result.append(contentsOf: suffixes.map { (directory + "Packages" + $0, format) })
         }
+        return result
     }
+
+    /// Release checksum paths are relative to the directory containing Release,
+    /// not to the repository root. This matters for dists repositories, where
+    /// Release lists main/binary-*/Packages* rather than dists/<suite>/....
+    private func releaseRelativeIndexPath(_ path: String, source: RepositorySource) -> String {
+        if source.isFlat {
+            let prefix = source.flatPathPrefix
+            guard !prefix.isEmpty, path.hasPrefix(prefix + "/") else { return path }
+            return String(path.dropFirst(prefix.count + 1))
+        }
+        let prefix = "dists/\(source.suite)/"
+        return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
+    }
+
+    private func byHashPath(for normalPath: String, checksum: ReleaseFile.Checksum) -> String {
+        let directory = (normalPath as NSString).deletingLastPathComponent
+        let hashPath = "by-hash/\(checksum.algorithm.fieldName)/\(checksum.hex)"
+        return directory.isEmpty ? hashPath : directory + "/" + hashPath
+    }
+
 
     // MARK: - Release
 
@@ -508,7 +554,8 @@ public actor RepositoryClient {
         guard let suite = source.releasePath else { return (nil, .unsigned, []) }
         var warnings: [String] = []
 
-        if let inReleaseURL = url(source, path: suite.replacingOccurrences(of: "Release", with: "InRelease")),
+        let inReleasePath = ((suite as NSString).deletingLastPathComponent as NSString).appendingPathComponent("InRelease")
+        if let inReleaseURL = url(source, path: inReleasePath),
            let (data, response) = try? await downloader.data(for: inReleaseURL),
            response.statusCode == 200 {
             let verifier = SignatureVerifier(
@@ -644,7 +691,13 @@ public actor RepositoryClient {
             return destination
         }
 
-        try await downloader.download(from: remote, to: destination, progress: progress)
+        let strongDigest = Self.hasValidStrongDigest(record)
+        try await downloader.download(
+            from: remote,
+            to: destination,
+            allowCrossOriginRedirects: strongDigest,
+            progress: progress
+        )
 
         guard try verifyDownloadedFile(at: destination, record: record) else {
             try? FileManager.default.removeItem(atPath: destination)

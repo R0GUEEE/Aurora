@@ -90,12 +90,18 @@ public struct SourceStore: Sendable {
             let architectures = source.architectures.isEmpty
                 ? ""
                 : "\nArchitectures: \(source.architectures.joined(separator: " "))"
+            let architectureAdditions = (source.architectureAdditions ?? []).isEmpty
+                ? ""
+                : "\nArchitectures-Add: \((source.architectureAdditions ?? []).joined(separator: " "))"
+            let architectureRemovals = (source.architectureRemovals ?? []).isEmpty
+                ? ""
+                : "\nArchitectures-Remove: \((source.architectureRemovals ?? []).joined(separator: " "))"
             let enabled = source.isEnabled ? "" : "\nEnabled: no"
             return """
             Types: deb
             URIs: \(source.normalizedURL)/
             Suites: \(source.suite.isEmpty ? "./" : source.suite)
-            Components: \(components)\(architectures)\(enabled)
+            Components: \(components)\(architectures)\(architectureAdditions)\(architectureRemovals)\(enabled)
             """
         }.joined(separator: "\n\n") + (list.sources.isEmpty ? "" : "\n")
 

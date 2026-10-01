@@ -22,6 +22,8 @@ public struct ReleaseFile: Hashable, Sendable {
     public let validUntil: Date?
     public let architectures: [String]
     public let components: [String]
+    /// Debian repositories may request hash-addressed index acquisition.
+    public let acquireByHash: Bool
     public let checksums: [Checksum]
 
     public init(stanza: ControlStanza) {
@@ -35,6 +37,8 @@ public struct ReleaseFile: Hashable, Sendable {
         self.validUntil = Self.parseDate(stanza.string("Valid-Until"))
         self.architectures = (stanza.string("Architectures") ?? "").split(separator: " ").map(String.init)
         self.components = (stanza.string("Components") ?? "").split(separator: " ").map(String.init)
+        let byHash = (stanza.string("Acquire-By-Hash") ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        self.acquireByHash = ["yes", "true", "1"].contains(byHash)
         self.checksums = Self.parseChecksums(stanza)
     }
 
@@ -75,19 +79,23 @@ public struct ReleaseFile: Hashable, Sendable {
 
     /// The strongest checksum recorded for a repository-relative path.
     public func checksum(forPath path: String) -> Checksum? {
+        let wanted = Self.normalizedChecksumPath(path)
         for algorithm in HashAlgorithm.byStrength {
-            if let match = checksums.first(where: { $0.algorithm == algorithm && $0.path == path }) {
-                return match
-            }
-        }
-        // Some repositories record an absolute path with a leading slash.
-        let stripped = path.hasPrefix("/") ? String(path.dropFirst()) : "/" + path
-        for algorithm in HashAlgorithm.byStrength {
-            if let match = checksums.first(where: { $0.algorithm == algorithm && $0.path == stripped }) {
+            if let match = checksums.first(where: {
+                $0.algorithm == algorithm && Self.normalizedChecksumPath($0.path) == wanted
+            }) {
                 return match
             }
         }
         return nil
+    }
+
+    private static func normalizedChecksumPath(_ raw: String) -> String {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        while value.hasPrefix("./") { value = String(value.dropFirst(2)) }
+        while value.hasPrefix("/") { value.removeFirst() }
+        while value.contains("//") { value = value.replacingOccurrences(of: "//", with: "/") }
+        return value.removingPercentEncoding ?? value
     }
 
     public var isExpired: Bool {
