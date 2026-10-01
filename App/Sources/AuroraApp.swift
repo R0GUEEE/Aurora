@@ -22,7 +22,7 @@ struct AuroraApp: App {
 struct RootView: View {
 
     @ObservedObject var store: AuroraStore
-    @State private var selection: AppTab = .browse
+    @State private var selection: AppTab = .home
     @State private var isImportingDeb = false
     @Environment(\.scenePhase) private var scenePhase
 
