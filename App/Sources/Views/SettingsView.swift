@@ -82,15 +82,21 @@ struct SettingsView: View {
                 get: { store.settings.ignoreSignatureFailures },
                 set: { store.setIgnoreSignatureFailures($0) }
             ))
-            Toggle("Show only rootless-compatible packages", isOn: Binding(
-                get: { store.settings.showOnlyRootlessCompatible },
-                set: { store.setRootlessOnly($0) }
+            Toggle("Include rootful packages", isOn: Binding(
+                get: { !store.settings.showOnlyRootlessCompatible },
+                set: { store.setRootlessOnly(!$0) }
             ))
             .disabled(store.environment.layout != .rootless)
+
+            Toggle("Offer rootful → rootless conversion", isOn: Binding(
+                get: { store.settings.allowRootfulConversion },
+                set: { store.setAllowRootfulConversion($0) }
+            ))
+            .disabled(store.environment.layout != .rootless || store.settings.showOnlyRootlessCompatible)
         } header: {
             Text("Repositories")
         } footer: {
-            Text("Most jailbreak repositories are unsigned; with signature checking enforced they are refused instead of being shown with a warning. The rootless filter hides iphoneos-arm packages, which cannot work under /var/jb.")
+            Text("Most jailbreak repositories are unsigned; with signature checking enforced they are refused instead of being shown with a warning. Rootful packages use legacy root filesystem paths. Conversion is opt-in and best-effort; packages with hard-coded paths, incompatible binaries, or complex maintainer scripts may still fail after conversion.")
         }
     }
 
