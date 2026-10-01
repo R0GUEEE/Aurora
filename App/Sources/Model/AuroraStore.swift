@@ -955,7 +955,11 @@ final class AuroraStore: ObservableObject {
         architecture: String? = nil,
         installedOnly: Bool = false,
         updatesOnly: Bool = false,
-        compatibleOnly: Bool = false
+        compatibleOnly: Bool = false,
+        bookmarkedOnly: Bool = false,
+        verifiedSourcesOnly: Bool = false,
+        depictionOnly: Bool = false,
+        commercial: Bool? = nil
     ) -> [PackageRecord] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return [] }
@@ -972,6 +976,17 @@ final class AuroraStore: ObservableObject {
             if updatesOnly && !hasUpdate(named: record.name) { return false }
             if compatibleOnly && PackageCompatibility.evaluate(record, environment: environment).level == .incompatible {
                 return false
+            }
+            if bookmarkedOnly && !userLibrary.bookmarks.contains(record.name) { return false }
+            if depictionOnly && record.depictionURL == nil { return false }
+            if let commercial, record.commercial != commercial { return false }
+            if verifiedSourcesOnly {
+                guard let origin = record.origin,
+                      let source = sources.first(where: {
+                          $0.normalizedURL.caseInsensitiveCompare(origin.url) == .orderedSame
+                              && $0.suite == origin.suite
+                      }),
+                      signatureStatus[source.id]?.isVerified == true else { return false }
             }
             return true
         }
