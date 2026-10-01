@@ -87,6 +87,36 @@ final class RepositorySecurityTests: XCTestCase {
         XCTAssertNotNil(strictPolicy.signatureRejection(for: .untrusted(reason: "No public key")))
     }
 
+    func testBrokenDynamicLoaderIsVerificationUnavailable() {
+        let status = SignatureVerifier.failedVerificationStatus(
+            """
+            dyld[123]: Library not loaded: @rpath/libgcrypt.20.dylib
+              Referenced from: /var/jb/usr/bin/gpgv
+              Expected in: /var/jb/usr/lib/libgpg-error.0.dylib
+            """
+        )
+        guard case .unavailable = status else {
+            return XCTFail("Expected verifier runtime failure to be unavailable, got \(status)")
+        }
+    }
+
+    func testBadSignatureTakesPrecedenceOverRuntimeFailure() {
+        let status = SignatureVerifier.failedVerificationStatus(
+            "gpgv: BAD signature from \"dyld\"\ndyld: Library not loaded: libgcrypt.20.dylib"
+        )
+        guard case .rejected = status else {
+            return XCTFail("Expected bad signature to remain rejected, got \(status)")
+        }
+    }
+
+    func testBrokenVerifierRuntimeCanBeIgnoredInCompatibilityMode() {
+        let status = SignatureVerifier.failedVerificationStatus(
+            "dyld: Symbol not found: _gpg_error_check_version\nExpected in: /var/jb/usr/lib/libgpg-error.0.dylib"
+        )
+        let compatibilityPolicy = RepositoryPolicy(requireSignature: false)
+        XCTAssertNil(compatibilityPolicy.signatureRejection(for: status))
+    }
+
     func testUnknownKeyOnlyVerifierFailureIsUntrusted() {
         let status = SignatureVerifier.failedVerificationStatus(
             "gpgv: Signature made today\ngpgv: Can't check signature: No public key"

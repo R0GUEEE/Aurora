@@ -90,6 +90,20 @@ jobs:
           test -x "$APP_BUNDLE_PATH/Aurora" || { echo "::error::$APP_BUNDLE_PATH/Aurora is missing or not executable"; exit 1; }
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_BUNDLE_PATH/Info.plist"
 
+          # Aurora must support legacy jailbreak repositories served over HTTP.
+          # On iOS 10+, the presence of the fine-grained ATS exception keys makes
+          # the OS ignore NSAllowsArbitraryLoads for URLSession, so assert both
+          # the required global key and the absence of the conflicting keys.
+          ats=$(/usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity:NSAllowsArbitraryLoads' "$APP_BUNDLE_PATH/Info.plist")
+          [ "$ats" = "true" ] || { echo "::error::NSAllowsArbitraryLoads is not true in the built app"; exit 1; }
+
+          for key in NSAllowsArbitraryLoadsInWebContent NSAllowsArbitraryLoadsForMedia NSAllowsLocalNetworking; do
+            if /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity:$key" "$APP_BUNDLE_PATH/Info.plist" >/dev/null 2>&1; then
+              echo "::error::$key must not be present because it disables NSAllowsArbitraryLoads for URLSession on iOS 10+"
+              exit 1
+            fi
+          done
+
       - name: Upload the app bundle
         uses: actions/upload-artifact@v4
         with:
