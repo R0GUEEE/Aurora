@@ -339,12 +339,14 @@ struct ImportSourcesSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Sources") {
+                Section {
                     TextEditor(text: $text)
                         .frame(minHeight: 220)
                         .font(.system(.footnote, design: .monospaced))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
+                } header: {
+                    Text("Sources")
                 } footer: {
                     Text("Paste repository URLs or APT lines such as: deb https://repo.example stable main")
                 }
