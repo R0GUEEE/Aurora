@@ -61,7 +61,7 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             allowNotModified: true
         )
         do {
-            let (_, response) = try await session.download(for: request, delegate: delegate)
+            let (temporaryURL, response) = try await session.download(for: request, delegate: delegate)
             guard let http = response as? HTTPURLResponse else {
                 throw TransportError.transport(url.absoluteString, underlying: URLError(.badServerResponse))
             }
@@ -72,7 +72,15 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             if http.statusCode == 304, !FileManager.default.fileExists(atPath: staging) {
                 return (Data(), http)
             }
-            let data = try Data(contentsOf: URL(fileURLWithPath: staging), options: .mappedIfSafe)
+
+            // URLSession's download delegate normally moves the temporary file to
+            // the staging path, but some Foundation builds return before that move
+            // is visible. The async API also gives us the completed temporary URL,
+            // so use it as a safe fallback instead of reporting missing metadata.
+            let readableURL = FileManager.default.fileExists(atPath: staging)
+                ? URL(fileURLWithPath: staging)
+                : temporaryURL
+            let data = try Data(contentsOf: readableURL, options: .mappedIfSafe)
             guard data.count <= byteLimit else { throw TransportError.responseTooLarge(Int64(byteLimit)) }
             return (data, http)
         } catch let error as TransportError {
