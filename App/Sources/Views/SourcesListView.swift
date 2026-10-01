@@ -477,7 +477,7 @@ struct SourceRow: View {
                 }
             }
 
-            let warnings = store.warnings(for: source.id)
+            let warnings = store.settings.showRepositoryWarnings ? store.warnings(for: source.id) : []
             if !warnings.isEmpty {
                 DisclosureGroup(isExpanded: $isShowingWarnings) {
                     ForEach(warnings, id: \.self) { warning in
