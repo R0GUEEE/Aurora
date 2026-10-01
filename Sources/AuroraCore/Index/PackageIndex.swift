@@ -52,18 +52,18 @@ public struct PackageIndex: Sendable {
         records.append(contentsOf: other.records)
         normalizedSearchText.append(contentsOf: other.normalizedSearchText)
         for (name, indexes) in other.byName {
-            var merged = byName[name, default: []]
-            merged.reserveCapacity(merged.count + indexes.count)
-            for index in indexes { merged.append(index + offset) }
-            merged.sort { Self.isPreferred(records[$0], records[$1]) }
-            byName[name] = merged
+            byName[name] = mergePreferredIndexes(
+                byName[name] ?? [],
+                indexes,
+                rightOffset: offset
+            )
         }
         for (name, indexes) in other.byProvidedName {
-            var merged = byProvidedName[name, default: []]
-            merged.reserveCapacity(merged.count + indexes.count)
-            for index in indexes { merged.append(index + offset) }
-            merged.sort { Self.isPreferred(records[$0], records[$1]) }
-            byProvidedName[name] = merged
+            byProvidedName[name] = mergePreferredIndexes(
+                byProvidedName[name] ?? [],
+                indexes,
+                rightOffset: offset
+            )
         }
     }
 
@@ -79,12 +79,42 @@ public struct PackageIndex: Sendable {
                 byProvidedName[provided.name, default: []].append(index)
             }
         }
-        for name in byName.keys {
+        for name in Array(byName.keys) {
             byName[name]?.sort { Self.isPreferred(records[$0], records[$1]) }
         }
-        for name in byProvidedName.keys {
+        for name in Array(byProvidedName.keys) {
             byProvidedName[name]?.sort { Self.isPreferred(records[$0], records[$1]) }
         }
+    }
+
+    private func mergePreferredIndexes(
+        _ left: [Int],
+        _ right: [Int],
+        rightOffset: Int
+    ) -> [Int] {
+        guard !left.isEmpty else { return right.map { $0 + rightOffset } }
+        guard !right.isEmpty else { return left }
+
+        var result: [Int] = []
+        result.reserveCapacity(left.count + right.count)
+        var l = 0
+        var r = 0
+
+        while l < left.count && r < right.count {
+            let rightIndex = right[r] + rightOffset
+            if Self.isPreferred(records[left[l]], records[rightIndex]) {
+                result.append(left[l])
+                l += 1
+            } else {
+                result.append(rightIndex)
+                r += 1
+            }
+        }
+        if l < left.count { result.append(contentsOf: left[l...]) }
+        if r < right.count {
+            for index in right[r...] { result.append(index + rightOffset) }
+        }
+        return result
     }
 
     /// Drops everything that came from one repository, so a refresh can replace
@@ -268,17 +298,20 @@ public struct PackageIndex: Sendable {
                 best[record.name] = record
             }
         }
-        return best.values.sorted {
-            let lID = $0.name.lowercased(), rID = $1.name.lowercased()
-            let lName = $0.displayName.lowercased(), rName = $1.displayName.lowercased()
-            if lID == needle && rID != needle { return true }
-            if rID == needle && lID != needle { return false }
-            if lName == needle && rName != needle { return true }
-            if rName == needle && lName != needle { return false }
-            if lID.hasPrefix(needle) != rID.hasPrefix(needle) { return lID.hasPrefix(needle) }
-            if lName.hasPrefix(needle) != rName.hasPrefix(needle) { return lName.hasPrefix(needle) }
-            return Self.isPreferred($0, $1)
-        }.prefix(limit).map { $0 }
+        let decorated = best.values.map {
+            (record: $0, id: $0.name.lowercased(), displayName: $0.displayName.lowercased())
+        }
+        return decorated.sorted { lhs, rhs in
+            if lhs.id == needle && rhs.id != needle { return true }
+            if rhs.id == needle && lhs.id != needle { return false }
+            if lhs.displayName == needle && rhs.displayName != needle { return true }
+            if rhs.displayName == needle && lhs.displayName != needle { return false }
+            let lIDPrefix = lhs.id.hasPrefix(needle), rIDPrefix = rhs.id.hasPrefix(needle)
+            if lIDPrefix != rIDPrefix { return lIDPrefix }
+            let lNamePrefix = lhs.displayName.hasPrefix(needle), rNamePrefix = rhs.displayName.hasPrefix(needle)
+            if lNamePrefix != rNamePrefix { return lNamePrefix }
+            return Self.isPreferred(lhs.record, rhs.record)
+        }.prefix(limit).map(\.record)
     }
 
     private static func searchText(for record: PackageRecord) -> String {
@@ -295,9 +328,10 @@ public struct PackageIndex: Sendable {
     /// Section name → number of packages, most populated first.
     public func sections() -> [(name: String, count: Int)] {
         var counts: [String: Int] = [:]
-        var seen: Set<String> = []
-        for record in records {
-            guard seen.insert(record.name).inserted else { continue }
+        counts.reserveCapacity(32)
+        for indexes in byName.values {
+            guard let index = indexes.first else { continue }
+            let record = records[index]
             counts[record.section.isEmpty ? "Uncategorised" : record.section, default: 0] += 1
         }
         // Most populated first, then alphabetically, so the list is stable and
