@@ -8,6 +8,8 @@ public enum TransactionEvent: Sendable {
     case removing(package: String)
     case unpacking(package: String)
     case configuring(package: String)
+    /// Parsed dpkg output when a package/phase can be identified.
+    case dpkgProgress(package: String?, status: String, percent: Double?)
     /// Raw output from dpkg, forwarded so a user can always see the truth.
     case output(String)
     case finished(TransactionReport)
@@ -60,6 +62,29 @@ private extension String {
 /// 3. **Failure stops the transaction and says where.** Half a transaction is
 ///    recoverable (`dpkg --configure -a` finishes it) but continuing blindly after
 ///    a failed preinst is not.
+private func parsedDpkgEvent(_ text: String) -> TransactionEvent? {
+    for rawLine in text.split(whereSeparator: \.isNewline) {
+        let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+        if line.hasPrefix("Setting up ") {
+            let package = line.dropFirst("Setting up ".count).split(separator: " ").first.map(String.init)
+            return .dpkgProgress(package: package, status: "configuring", percent: nil)
+        }
+        if line.hasPrefix("Unpacking ") {
+            let package = line.dropFirst("Unpacking ".count).split(separator: " ").first.map(String.init)
+            return .dpkgProgress(package: package, status: "unpacking", percent: nil)
+        }
+        if line.hasPrefix("Removing ") || line.hasPrefix("Purging ") {
+            let verb = line.hasPrefix("Removing ") ? "Removing " : "Purging "
+            let package = line.dropFirst(verb.count).split(separator: " ").first.map(String.init)
+            return .dpkgProgress(package: package, status: verb.trimmingCharacters(in: .whitespaces), percent: nil)
+        }
+        if line.hasPrefix("Processing triggers for ") {
+            return .dpkgProgress(package: nil, status: line, percent: nil)
+        }
+    }
+    return nil
+}
+
 public actor InstallEngine {
 
     private let environment: JailbreakEnvironment
@@ -220,7 +245,9 @@ public actor InstallEngine {
             do {
                 _ = try await runBlocking {
                     try self.dpkg.remove(package: package.name, purge: purge) { chunk in
-                        progress?(.output(String(decoding: chunk, as: UTF8.self)))
+                        let text = String(decoding: chunk, as: UTF8.self)
+                        progress?(.output(text))
+                        if let event = parsedDpkgEvent(text) { progress?(event) }
                     }
                 }
                 report.removed.append(package.name)
@@ -245,7 +272,9 @@ public actor InstallEngine {
             do {
                 _ = try await runBlocking {
                     try self.dpkg.unpack(debAt: path) { chunk in
-                        progress?(.output(String(decoding: chunk, as: UTF8.self)))
+                        let text = String(decoding: chunk, as: UTF8.self)
+                        progress?(.output(text))
+                        if let event = parsedDpkgEvent(text) { progress?(event) }
                     }
                 }
                 switch true {
@@ -279,7 +308,9 @@ public actor InstallEngine {
             do {
                 _ = try await runBlocking {
                     try self.dpkg.configurePending { chunk in
-                        progress?(.output(String(decoding: chunk, as: UTF8.self)))
+                        let text = String(decoding: chunk, as: UTF8.self)
+                        progress?(.output(text))
+                        if let event = parsedDpkgEvent(text) { progress?(event) }
                     }
                 }
                 record("configured \(plan.unpackSteps.count) package(s)")
