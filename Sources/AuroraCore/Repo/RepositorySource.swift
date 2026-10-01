@@ -24,6 +24,9 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
     public var isBuiltIn: Bool
     public var lastRefreshed: Date?
     public var lastError: String?
+    /// Consecutive refresh failures. Reset to zero after a successful refresh.
+    /// Optional so source files written by older Aurora builds decode unchanged.
+    public var consecutiveFailures: Int?
 
     public init(
         id: UUID = UUID(),
@@ -36,7 +39,8 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
         isEnabled: Bool = true,
         isBuiltIn: Bool = false,
         lastRefreshed: Date? = nil,
-        lastError: String? = nil
+        lastError: String? = nil,
+        consecutiveFailures: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -49,6 +53,7 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
         self.isBuiltIn = isBuiltIn
         self.lastRefreshed = lastRefreshed
         self.lastError = lastError
+        self.consecutiveFailures = consecutiveFailures
     }
 
     /// Normalised so `https://a.com/` and `https://a.com` cannot coexist as two
