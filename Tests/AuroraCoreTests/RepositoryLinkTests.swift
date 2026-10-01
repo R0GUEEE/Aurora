@@ -123,6 +123,59 @@ final class RepositoryLinkTests: XCTestCase {
         XCTAssertTrue(source.components.isEmpty)
     }
 
+
+    func testComponentlessClassicSourceUsesSileoFlatLayout() throws {
+        let source = try XCTUnwrap(SourceInterchange.parse(
+            "deb https://repo.example.test stable"
+        ).first)
+        XCTAssertTrue(source.isFlat)
+        XCTAssertEqual(source.flatPathPrefix, "stable")
+        XCTAssertEqual(source.releasePath, "stable/Release")
+    }
+
+    func testTrailingSlashSuiteUsesNestedFlatLayout() throws {
+        let source = try XCTUnwrap(SourceInterchange.parse(
+            "deb https://repo.example.test repo/ main"
+        ).first)
+        XCTAssertTrue(source.isFlat)
+        XCTAssertEqual(source.flatPathPrefix, "repo")
+        XCTAssertEqual(source.releasePath, "repo/Release")
+    }
+
+    func testClassicSourceOptionsSupportArchitectureAddRemoveAndInlineComment() throws {
+        let source = try XCTUnwrap(SourceInterchange.parse(
+            "deb [arch=iphoneos-arm64,iphoneos-arm arch-=iphoneos-arm arch+=all trusted=yes] https://repo.example.test ./ # legacy source"
+        ).first)
+        XCTAssertEqual(source.architectures, ["all", "iphoneos-arm64"])
+        XCTAssertTrue(source.isFlat)
+    }
+
+    func testDeb822ArchitectureAddRemoveAndDisabledAliases() throws {
+        let source = try XCTUnwrap(SourceInterchange.parse("""
+        Types: deb
+        URIs: https://repo.example.test
+        Suites: stable
+        Components: main
+        Architectures: iphoneos-arm64 iphoneos-arm
+        Architectures-Add: all
+        Architectures-Remove: iphoneos-arm
+        Enabled: false
+        """).first)
+        XCTAssertEqual(source.architectures, ["all", "iphoneos-arm64"])
+        XCTAssertFalse(source.isEnabled)
+    }
+
+    func testAlternateCompressedIndexLinksFoldToRepositoryRoot() throws {
+        XCTAssertEqual(
+            RepositoryLink.parse("https://repo.example.test/Packages.zstd")?.url,
+            "https://repo.example.test"
+        )
+        XCTAssertEqual(
+            RepositoryLink.parse("https://repo.example.test/Packages.bzip2")?.url,
+            "https://repo.example.test"
+        )
+    }
+
     func testRejectsNonRepositoryTextAndCredentials() {
         XCTAssertNil(RepositoryLink.parse("not a repository"))
         XCTAssertNil(RepositoryLink.parse("https://user:pass@repo.example.test"))
