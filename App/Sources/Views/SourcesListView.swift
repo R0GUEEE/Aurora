@@ -67,6 +67,32 @@ struct SourcesListView: View {
                 Text("\(store.totalPackageCount) packages in the merged index.")
             }
 
+            if store.refreshState.isRefreshing {
+                Section("Refresh Activity") {
+                    ForEach(store.sources.filter { store.repositoryRefreshActivity[$0.id] != nil }) { source in
+                        if let activity = store.repositoryRefreshActivity[source.id] {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(source.name)
+                                    Text(activity.message ?? activity.phase.rawValue)
+                                        .font(.caption2)
+                                        .foregroundColor(activity.phase == .failed ? .red : .secondary)
+                                        .lineLimit(2)
+                                }
+                                Spacer()
+                                if activity.phase == .refreshing {
+                                    ProgressView()
+                                } else {
+                                    Text(activity.phase.rawValue)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             Section("Repository Health") {
                 LabeledContent("Enabled", value: "\(store.sources.filter(\.isEnabled).count) / \(store.sources.count)")
                 LabeledContent("Failed", value: "\(store.failedSourceIDs.count)")
