@@ -19,6 +19,7 @@ struct SettingsView: View {
             environmentSection
             refreshSection
             renderingSection
+            tabsSection
             storageSection
             diagnosticsSection
             aboutSection
@@ -116,6 +117,27 @@ struct SettingsView: View {
             Text("Depictions")
         } footer: {
             Text(store.settings.depictionPreference.explanation)
+        }
+    }
+
+    // MARK: - Tabs
+
+    private var tabsSection: some View {
+        Section {
+            NavigationLink {
+                TabCustomizationView(store: store)
+            } label: {
+                HStack {
+                    Label("Customize Tabs", systemImage: "rectangle.bottomthird.inset.filled")
+                    Spacer()
+                    Text("\(store.settings.tabs.count)")
+                        .foregroundColor(.secondary)
+                }
+            }
+        } header: {
+            Text("Navigation")
+        } footer: {
+            Text("Choose up to five tabs, replace destinations you do not use, and drag the selected tabs into any order.")
         }
     }
 
@@ -241,5 +263,84 @@ struct StateFilesSheet: View {
                 }
             }
         }
+    }
+}
+
+
+@MainActor
+struct TabCustomizationView: View {
+    @ObservedObject var store: AuroraStore
+
+    private var selected: [AppTab] { store.settings.tabs }
+    private var alternatives: [AppTab] { AppTab.allCases.filter { !selected.contains($0) } }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(selected) { tab in
+                    Label(tab.label, systemImage: tab.symbol)
+                        .swipeActions {
+                            if selected.count > 1 {
+                                Button(role: .destructive) { remove(tab) } label: {
+                                    Label("Remove", systemImage: "minus.circle")
+                                }
+                            }
+                        }
+                }
+                .onMove(perform: move)
+            } header: {
+                Text("Tab Bar")
+            } footer: {
+                Text("Drag to rearrange. Aurora keeps at least one destination and shows at most five tabs.")
+            }
+
+            Section {
+                if alternatives.isEmpty {
+                    Text("Every destination is already selected.")
+                        .foregroundColor(.secondary)
+                }
+                ForEach(alternatives) { tab in
+                    Button { add(tab) } label: {
+                        HStack {
+                            Label(tab.label, systemImage: tab.symbol)
+                            Spacer()
+                            Image(systemName: "plus.circle")
+                        }
+                    }
+                    .disabled(selected.count >= 5)
+                }
+            } header: {
+                Text("Alternative Tabs")
+            } footer: {
+                if selected.count >= 5 {
+                    Text("Remove one of the current tabs before adding another.")
+                } else {
+                    Text("Available: Browse, New, Installed, Library, Sources, Search, Queue, and Settings.")
+                }
+            }
+
+            Section {
+                Button("Restore Default Tabs") { store.resetTabs() }
+            }
+        }
+        .navigationTitle("Customize Tabs")
+        .navigationBarTitleDisplayMode(.inline)
+        .environment(\.editMode, .constant(.active))
+    }
+
+    private func move(from source: IndexSet, to destination: Int) {
+        var tabs = selected
+        tabs.move(fromOffsets: source, toOffset: destination)
+        store.setTabs(tabs)
+    }
+
+    private func remove(_ tab: AppTab) {
+        guard selected.count > 1 else { return }
+        store.setTabs(selected.filter { $0 != tab })
+    }
+
+    private func add(_ tab: AppTab) {
+        guard selected.count < 5, !selected.contains(tab) else { return }
+        store.setTabs(selected + [tab])
     }
 }
