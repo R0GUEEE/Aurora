@@ -37,6 +37,7 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
     /// A plain GET, used for index files which are small enough to hold in memory.
     public func data(for url: URL, headers: [String: String] = [:]) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         do {
             let (data, response) = try await session.data(for: request)
