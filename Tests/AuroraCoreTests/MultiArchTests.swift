@@ -97,7 +97,7 @@ final class MultiArchTests: XCTestCase {
         let index = try self.index()
         // plain-client is arm64 and depends on libother, which is arm-only and
         // *not* foreign: that is an unsatisfiable dependency, not a silent install.
-        let result = resolver().attempt(staged(.install(try record("plain-client", "iphoneos-arm64", in: index))))
+        let result = try resolver().attempt(staged(.install(try record("plain-client", "iphoneos-arm64", in: index))))
         switch result {
         case .success:
             XCTFail("an arm-only, non-foreign dependency must not satisfy an arm64 package")
@@ -131,7 +131,7 @@ final class MultiArchTests: XCTestCase {
         // A rootless arm64-only device has no arm index, so the arm build of
         // libother is not installable at all.
         let rootless = policy(allowed: ["iphoneos-arm64"])
-        let result = resolver(rootless).attempt(staged(.install(try record("anyarch-client", "iphoneos-arm64", in: index))))
+        let result = try resolver(rootless).attempt(staged(.install(try record("anyarch-client", "iphoneos-arm64", in: index))))
         switch result {
         case .success:
             XCTFail("an architecture the client cannot install must not be selected")
