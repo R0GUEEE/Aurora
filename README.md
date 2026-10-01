@@ -51,7 +51,7 @@ about where the line is:
 - `dpkg` execution through `posix_spawn` with a controlled environment, atomic
   status-file writes and a backup.
 
-**App** — Browse / Search / Sources / queue / transaction log / settings, iOS 16+.
+**App** — Home / Browse / New / Installed / Library / Sources / Search / Queue / settings, iOS 16+. The Library includes bookmarks, user-defined collections, recently viewed packages, hidden packages and transaction history. Search supports repository/section/architecture filters, installed/update/compatibility/bookmark filters, verified-source and commercial-package facets, multiple sort modes, and swipe actions for queueing/bookmarking.
 
 ## Layout
 
@@ -112,8 +112,7 @@ Honest list, because a package manager that lies about its coverage is dangerous
   is deliberately not vendored. Every major repository also publishes xz or gzip.
 - **OpenPGP verification** uses the device's `gpgv`/`sqv` and keyrings. Where
   neither exists, sources report `Signature not checked` rather than `Signed`.
-- The app does not yet do background refreshes, and it has never been installed
-  on a physical device.
+- The app refreshes stale repositories when it returns to the foreground (configurable), but does not yet schedule true iOS background refresh tasks. It has never been installed on a physical device.
 
 ## License
 
