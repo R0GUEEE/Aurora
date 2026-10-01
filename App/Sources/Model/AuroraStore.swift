@@ -278,6 +278,35 @@ final class AuroraStore: ObservableObject {
         }
     }
 
+    func packageRecords(for sourceID: UUID, matching query: String = "") -> [PackageRecord] {
+        guard let index = indexBySource[sourceID] else { return [] }
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        var best: [String: PackageRecord] = [:]
+        for record in index.records {
+            if filtersRootlessOnly && !Self.isCompatible(record) { continue }
+            if !needle.isEmpty {
+                let matches = record.name.lowercased().contains(needle)
+                    || record.displayName.lowercased().contains(needle)
+                    || record.synopsis.lowercased().contains(needle)
+                    || record.section.lowercased().contains(needle)
+                if !matches { continue }
+            }
+            if let existing = best[record.name] {
+                if DebianVersion.compare(record.version, existing.version) > 0 {
+                    best[record.name] = record
+                }
+            } else {
+                best[record.name] = record
+            }
+        }
+
+        return best.values.sorted {
+            let order = $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
+            return order == .orderedSame ? $0.name < $1.name : order == .orderedAscending
+        }
+    }
+
     func packageCount(for id: UUID) -> Int { indexBySource[id]?.count ?? 0 }
 
     func signatureDescription(for id: UUID) -> String? {
