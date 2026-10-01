@@ -120,7 +120,7 @@ public enum SourceInterchange {
                 let parsedComponents = (stanza.string("Components") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
                 let parsedArchitectures = (stanza.string("Architectures") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
                 let addedArchitectures = (stanza.string("Architectures-Add") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
-                let removedArchitectures = Set((stanza.string("Architectures-Remove") ?? "").split(whereSeparator: \.isWhitespace).map(String.init))
+                let removedArchitectures = (stanza.string("Architectures-Remove") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
                 let enabledValue = (stanza.string("Enabled") ?? "yes").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 let enabled = !["no", "false", "0"].contains(enabledValue)
                 for rawURL in urls {
@@ -144,7 +144,7 @@ public enum SourceInterchange {
                             components: sourceComponents,
                             architectures: architectures,
                             architectureAdditions: addedArchitectures,
-                            architectureRemovals: Array(removedArchitectures),
+                            architectureRemovals: removedArchitectures,
                             isEnabled: enabled
                         ))
                     }
