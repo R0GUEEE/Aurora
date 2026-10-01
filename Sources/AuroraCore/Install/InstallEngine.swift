@@ -250,7 +250,7 @@ public actor InstallEngine {
             progress?(.removing(package: package.name))
             do {
                 _ = try await runBlocking {
-                    try self.dpkg.remove(package: package.qualifiedName, purge: purge) { chunk in
+                    try self.dpkg.remove(package: package.instanceKey, purge: purge) { chunk in
                         let text = String(decoding: chunk, as: UTF8.self)
                         progress?(.output(text))
                         if let event = parsedDpkgEvent(text) { progress?(event) }
