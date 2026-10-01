@@ -43,6 +43,16 @@ final class RepositorySecurityTests: XCTestCase {
         XCTAssertNil(compatibilityPolicy.signatureRejection(for: .unsigned))
     }
 
+    func testUntrustedSigningKeyCanBeIgnoredInCompatibilityMode() {
+        let compatibilityPolicy = RepositoryPolicy(requireSignature: false)
+        XCTAssertNil(compatibilityPolicy.signatureRejection(for: .untrusted(reason: "No public key")))
+    }
+
+    func testStrictPolicyRejectsUntrustedSigningKey() {
+        let strictPolicy = RepositoryPolicy(requireSignature: true)
+        XCTAssertNotNil(strictPolicy.signatureRejection(for: .untrusted(reason: "No public key")))
+    }
+
     func testRequiredSignatureRejectsUnsignedMetadataAndFlatSources() {
         let strictPolicy = RepositoryPolicy(requireSignature: true, allowFlatUnsigned: false)
         XCTAssertNotNil(strictPolicy.signatureRejection(for: .unsigned))
