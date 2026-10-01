@@ -159,9 +159,7 @@ final class AuroraStore: ObservableObject {
         hasStarted = true
         await reloadInstalled()
         if settings.autoRefreshOnLaunch {
-            if settings.autoRefreshOnLaunch {
             await refreshAll(forceReload: false)
-        }
         }
     }
 
