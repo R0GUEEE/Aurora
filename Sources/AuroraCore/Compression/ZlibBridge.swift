@@ -16,6 +16,7 @@ public enum ZlibBridge {
         /// a smaller index, and a repository without a `Release` file has no
         /// checksum to catch that.
         case truncatedStream(produced: Int)
+        case outputTooLarge(limit: Int)
 
         public var description: String {
             switch self {
@@ -23,6 +24,8 @@ public enum ZlibBridge {
             case .inflateFailed(let code): return "zlib could not decompress the data (code \(code))"
             case .truncatedStream(let produced):
                 return "the compressed data ends in the middle of the stream (got \(produced) bytes)"
+            case .outputTooLarge(let limit):
+                return "the decompressed output exceeds the \(limit)-byte limit"
             }
         }
     }
@@ -36,8 +39,13 @@ public enum ZlibBridge {
     /// `windowBits` 47 (`15 + 32`) asks zlib to detect the container from the
     /// first bytes, so one code path handles both a `.gz` index and a bare zlib
     /// stream. Use ``decompressRaw(_:)`` for headerless deflate.
-    public static func decompress(_ data: Data, windowBits: Int32 = 47) throws -> Data {
+    public static func decompress(
+        _ data: Data,
+        windowBits: Int32 = 47,
+        maximumOutputBytes: Int = Int.max
+    ) throws -> Data {
         guard !data.isEmpty else { return Data() }
+        let outputLimit = max(0, maximumOutputBytes)
 
         var stream = z_stream()
         var status = inflateInit2_(&stream, windowBits, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
@@ -63,7 +71,12 @@ public enum ZlibBridge {
                     }
                     return chunkSize - Int(stream.avail_out)
                 }
-                if produced > 0 { output.append(contentsOf: chunk[0..<produced]) }
+                if produced > 0 {
+                    guard produced <= outputLimit, output.count <= outputLimit - produced else {
+                        throw Error.outputTooLarge(limit: outputLimit)
+                    }
+                    output.append(contentsOf: chunk[0..<produced])
+                }
                 if status == Z_STREAM_END || produced == 0 { break }
             }
         }
@@ -77,7 +90,7 @@ public enum ZlibBridge {
     }
 
     /// Inflates headerless (raw) deflate data.
-    public static func decompressRaw(_ data: Data) throws -> Data {
-        try decompress(data, windowBits: -15)
+    public static func decompressRaw(_ data: Data, maximumOutputBytes: Int = Int.max) throws -> Data {
+        try decompress(data, windowBits: -15, maximumOutputBytes: maximumOutputBytes)
     }
 }

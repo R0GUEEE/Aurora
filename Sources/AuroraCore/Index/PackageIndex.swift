@@ -211,6 +211,7 @@ public struct PackageIndex: Sendable {
 
     /// Substring search over the fields a user actually recognises.
     public func search(_ query: String, section: String? = nil, limit: Int = 200) -> [PackageRecord] {
+        guard limit > 0 else { return [] }
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         var results: [PackageRecord] = []
         for (index, record) in records.enumerated() {
@@ -218,7 +219,6 @@ public struct PackageIndex: Sendable {
             if needle.isEmpty || normalizedSearchText[index].contains(needle) {
                 results.append(record)
             }
-            if results.count >= limit * 4 { break }
         }
         // Collapse to one row per name, best version first.
         var best: [String: PackageRecord] = [:]

@@ -39,10 +39,11 @@ public enum RepositoryError: Error, CustomStringConvertible {
 
 /// Client-side rules for what counts as an acceptable repository.
 public struct RepositoryPolicy: Sendable {
-    /// Refuse to load an index whose signature does not verify. Off by default:
-    /// most jailbreak repositories are unsigned, and refusing them would leave a
-    /// user with an empty store. The UI shows the state of every source instead.
+    /// Refuse unsigned, unverifiable, or flat indexes. Callers that intentionally
+    /// use legacy unsigned repositories must opt out explicitly.
     public var requireSignature: Bool
+    /// Refuse package archives that have no collision-resistant digest in the index.
+    public var requirePackageDigest: Bool
     /// Flat repositories carry no `Release` file at all, so a signature is
     /// impossible there by construction.
     public var allowFlatUnsigned: Bool
@@ -60,7 +61,8 @@ public struct RepositoryPolicy: Sendable {
     public var preferCachedIndexFormat: Bool
 
     public init(
-        requireSignature: Bool = false,
+        requireSignature: Bool = true,
+        requirePackageDigest: Bool = true,
         allowFlatUnsigned: Bool = true,
         maximumIndexBytes: Int = 256 * (1 << 20),
         useCache: Bool = true,
@@ -69,6 +71,7 @@ public struct RepositoryPolicy: Sendable {
         preferCachedIndexFormat: Bool = true
     ) {
         self.requireSignature = requireSignature
+        self.requirePackageDigest = requirePackageDigest
         self.allowFlatUnsigned = allowFlatUnsigned
         self.maximumIndexBytes = maximumIndexBytes
         self.useCache = useCache
@@ -78,6 +81,23 @@ public struct RepositoryPolicy: Sendable {
     }
 
     public static let `default` = RepositoryPolicy()
+
+    /// A cryptographically rejected signature is never ignorable. The compatibility
+    /// switch only permits metadata for which no usable signature was published.
+    public func signatureRejection(for status: SignatureStatus) -> String? {
+        switch status {
+        case .verified:
+            return nil
+        case .rejected:
+            return status.shortDescription
+        case .unsigned, .unavailable:
+            return requireSignature ? status.shortDescription : nil
+        }
+    }
+
+    public var flatRepositoryRejection: String? {
+        requireSignature || !allowFlatUnsigned ? "flat repositories cannot be signed" : nil
+    }
 }
 
 /// Everything one refresh produced.
@@ -149,17 +169,28 @@ public actor RepositoryClient {
         guard let rawFilename = record.filename else { return nil }
         let filename = rawFilename.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !filename.isEmpty else { return nil }
+        let resolved: URL
         if let absolute = URL(string: filename), absolute.scheme != nil {
             guard let scheme = absolute.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
-            return absolute
+            resolved = absolute
+        } else {
+            guard var base = URL(string: source.normalizedURL) else { return nil }
+            if !base.absoluteString.hasSuffix("/") {
+                base = URL(string: base.absoluteString + "/") ?? base
+            }
+            // Resolve before validating: protocol-relative paths can switch hosts.
+            guard let value = URL(string: filename, relativeTo: base)?.absoluteURL else { return nil }
+            resolved = value
         }
-        guard var base = URL(string: source.normalizedURL) else { return nil }
-        if !base.absoluteString.hasSuffix("/") {
-            base = URL(string: base.absoluteString + "/") ?? base
-        }
-        // URL resolution handles escaping and dot-segments without string
-        // concatenation accidentally producing malformed package URLs.
-        return URL(string: filename, relativeTo: base)?.absoluteURL
+        // Filename is repository-controlled. Do not let it direct a privileged
+        // package install to an arbitrary origin.
+        guard let base = URL(string: source.normalizedURL),
+              let scheme = resolved.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              resolved.host?.lowercased() == base.host?.lowercased(),
+              resolved.port == base.port,
+              resolved.user == nil, resolved.password == nil,
+              resolved.scheme?.lowercased() == base.scheme?.lowercased() else { return nil }
+        return resolved
     }
 
     private func url(_ source: RepositorySource, path: String) -> URL? {
@@ -199,15 +230,15 @@ public actor RepositoryClient {
             release = outcome.release
             signature = outcome.signature
             warnings.append(contentsOf: outcome.warnings)
-            if policy.requireSignature, !signature.isVerified {
+            if let rejection = policy.signatureRejection(for: signature) {
                 // A repository that failed verification is a hard stop: that is
                 // the entire point of signing metadata. Unsigned counts as
                 // unverified, and so does "no verifier available" — a user who
                 // asks for signatures must not silently get less than that.
-                throw RepositoryError.signatureRequired(source: source.name, reason: signature.shortDescription)
+                throw RepositoryError.signatureRequired(source: source.name, reason: rejection)
             }
-        } else if !policy.allowFlatUnsigned {
-            throw RepositoryError.signatureRequired(source: source.name, reason: "flat repositories cannot be signed")
+        } else if let rejection = policy.flatRepositoryRejection {
+            throw RepositoryError.signatureRequired(source: source.name, reason: rejection)
         } else {
             warnings.append("Flat repository: no Release file, so packages cannot be checksum-verified.")
         }
@@ -261,7 +292,11 @@ public actor RepositoryClient {
                         warnings.append(contentsOf: scanWarnings)
                         tried.append(contentsOf: paths.map(\.0))
                         do {
-                            let decompressed = try Decompressor.decompress(payload, format: format)
+                            let decompressed = try Decompressor.decompress(
+                                payload,
+                                format: format,
+                                maximumOutputBytes: policy.maximumIndexBytes
+                            )
                             guard decompressed.count <= policy.maximumIndexBytes else {
                                 throw RepositoryError.indexTooLarge(path: path, bytes: decompressed.count)
                             }
@@ -298,7 +333,11 @@ public actor RepositoryClient {
 
                     let decompressed: Data
                     do {
-                        decompressed = try Decompressor.decompress(payload, format: format)
+                        decompressed = try Decompressor.decompress(
+                            payload,
+                            format: format,
+                            maximumOutputBytes: policy.maximumIndexBytes
+                        )
                     } catch {
                         warnings.append("\(path): \(error)")
                         continue
@@ -450,7 +489,11 @@ public actor RepositoryClient {
 
         let data: Data
         do {
-            let (body, response) = try await downloader.data(for: indexURL, headers: headers)
+            let (body, response) = try await downloader.data(
+                for: indexURL,
+                headers: headers,
+                maximumBytes: policy.maximumIndexBytes
+            )
             if response.statusCode == 304, let cached {
                 data = cached.payload
             } else if response.statusCode == 200 {
@@ -537,7 +580,13 @@ public actor RepositoryClient {
     public func verifyDownloadedFile(at path: String, record: PackageRecord) throws -> Bool {
         let attributes = try? FileManager.default.attributesOfItem(atPath: path)
         let size = (attributes?[.size] as? NSNumber)?.intValue
-        if let expected = record.downloadSize, let size, size != expected { return false }
+        guard let size else { return false }
+        if let expected = record.downloadSize, size != expected { return false }
+        if let digest = record.bestDigest, !digest.algorithm.isBroken {
+            guard let actual = try? Hashing.hexDigest(ofFileAt: path, using: digest.algorithm) else { return false }
+            return Hashing.matches(actual, digest.hex)
+        }
+        if policy.requirePackageDigest { return false }
         if let digest = record.bestDigest {
             guard let actual = try? Hashing.hexDigest(ofFileAt: path, using: digest.algorithm) else { return false }
             return Hashing.matches(actual, digest.hex)

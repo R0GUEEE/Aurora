@@ -3,12 +3,14 @@ import Foundation
 public enum TransportError: Error, CustomStringConvertible {
     case invalidURL(String)
     case httpStatus(Int, String)
+    case responseTooLarge(Int64)
     case transport(String, underlying: Error)
 
     public var description: String {
         switch self {
         case .invalidURL(let url): return "not a usable URL: \(url)"
         case .httpStatus(let status, let url): return "the server answered \(status) for \(url)"
+        case .responseTooLarge(let limit): return "the response exceeded the \(limit)-byte safety limit"
         case .transport(let url, let underlying): return "\(url): \(underlying.localizedDescription)"
         }
     }
@@ -37,24 +39,49 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
     public static let userAgent = "Aurora/1.0 (iOS; like Sileo)"
 
     /// A plain GET, used for index files which are small enough to hold in memory.
-    public func data(for url: URL, headers: [String: String] = [:]) async throws -> (Data, HTTPURLResponse) {
+    public func data(
+        for url: URL,
+        headers: [String: String] = [:],
+        maximumBytes: Int = 32 * (1 << 20)
+    ) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         // Repository metadata should fail fast. Package downloads use the
         // session's much longer resource timeout separately.
         request.timeoutInterval = metadataTimeout
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        let byteLimit = max(0, maximumBytes)
+        let staging = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent("aurora-metadata-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(atPath: staging) }
+        let delegate = DownloadDelegate(
+            stagingPath: staging,
+            onProgress: nil,
+            maximumBytes: Int64(byteLimit),
+            allowNotModified: true
+        )
         do {
-            let (data, response) = try await session.data(for: request)
+            let (_, response) = try await session.download(for: request, delegate: delegate)
             guard let http = response as? HTTPURLResponse else {
                 throw TransportError.transport(url.absoluteString, underlying: URLError(.badServerResponse))
             }
+            guard (200...299).contains(http.statusCode) || http.statusCode == 304 else {
+                throw TransportError.httpStatus(http.statusCode, url.absoluteString)
+            }
+            if let failure = delegate.failure { throw failure }
+            if http.statusCode == 304, !FileManager.default.fileExists(atPath: staging) {
+                return (Data(), http)
+            }
+            let data = try Data(contentsOf: URL(fileURLWithPath: staging), options: .mappedIfSafe)
+            guard data.count <= byteLimit else { throw TransportError.responseTooLarge(Int64(byteLimit)) }
             return (data, http)
         } catch let error as TransportError {
             throw error
         } catch is CancellationError {
+            if let failure = delegate.failure { throw failure }
             throw CancellationError()
         } catch let error as URLError where error.code == .cancelled {
+            if let failure = delegate.failure { throw failure }
             throw CancellationError()
         } catch {
             throw TransportError.transport(url.absoluteString, underlying: error)
@@ -98,6 +125,10 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             try? fileManager.removeItem(atPath: staging)
             throw TransportError.httpStatus(http.statusCode, url.absoluteString)
         }
+        guard let finalURL = response.url, Self.sameOrigin(url, finalURL) else {
+            try? fileManager.removeItem(atPath: staging)
+            throw TransportError.invalidURL("download redirected away from repository origin \(url.host ?? "?")")
+        }
         if let failure = delegate.failure {
             try? fileManager.removeItem(atPath: staging)
             throw TransportError.transport(url.absoluteString, underlying: failure)
@@ -123,6 +154,12 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
         let length = http.expectedContentLength
         return length > 0 ? length : nil
     }
+
+    private static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
+            && lhs.host?.lowercased() == rhs.host?.lowercased()
+            && lhs.port == rhs.port
+    }
 }
 
 /// Moves the finished download out of the system's temporary directory before the
@@ -130,11 +167,20 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
 private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
     private let stagingPath: String
     private let onProgress: ((Int64, Int64) -> Void)?
+    private let maximumBytes: Int64?
+    private let allowNotModified: Bool
     private(set) var failure: Error?
 
-    init(stagingPath: String, onProgress: ((Int64, Int64) -> Void)?) {
+    init(
+        stagingPath: String,
+        onProgress: ((Int64, Int64) -> Void)?,
+        maximumBytes: Int64? = nil,
+        allowNotModified: Bool = false
+    ) {
         self.stagingPath = stagingPath
         self.onProgress = onProgress
+        self.maximumBytes = maximumBytes
+        self.allowNotModified = allowNotModified
     }
 
     func urlSession(
@@ -145,10 +191,15 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         totalBytesExpectedToWrite: Int64
     ) {
         onProgress?(totalBytesWritten, totalBytesExpectedToWrite)
+        if let maximumBytes, totalBytesWritten > maximumBytes {
+            failure = TransportError.responseTooLarge(maximumBytes)
+            downloadTask.cancel()
+        }
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        guard let http = downloadTask.response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+        guard let http = downloadTask.response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode) || (allowNotModified && http.statusCode == 304) else {
             failure = URLError(.badServerResponse)
             return
         }

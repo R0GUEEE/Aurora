@@ -286,6 +286,7 @@ final class AuroraStore: ObservableObject {
             downloader: HTTPDownloader(metadataTimeout: TimeInterval(settings.repositoryTimeoutSeconds)),
             policy: RepositoryPolicy(
                 requireSignature: !settings.ignoreSignatureFailures,
+                requirePackageDigest: !settings.allowPackagesWithoutDigest,
                 maximumIndexBytes: settings.maximumIndexSizeMB * (1 << 20),
                 useCache: settings.useRepositoryCache,
                 maximumRefreshSeconds: settings.repositoryRefreshDeadlineSeconds,
@@ -668,6 +669,7 @@ final class AuroraStore: ObservableObject {
         let concurrency = min(configuredConcurrency, enabled.count)
         let environment = self.environment
         let requireSignature = !settings.ignoreSignatureFailures
+        let requirePackageDigest = !settings.allowPackagesWithoutDigest
         let metadataTimeout = TimeInterval(settings.repositoryTimeoutSeconds)
         let maximumIndexBytes = settings.maximumIndexSizeMB * (1 << 20)
         // Snapshot MainActor settings before entering Sendable child tasks.
@@ -688,6 +690,7 @@ final class AuroraStore: ObservableObject {
                         downloader: HTTPDownloader(metadataTimeout: metadataTimeout),
                         policy: RepositoryPolicy(
                             requireSignature: requireSignature,
+                            requirePackageDigest: requirePackageDigest,
                             maximumIndexBytes: maximumIndexBytes,
                             useCache: useCache,
                             maximumRefreshSeconds: refreshDeadline,
@@ -798,6 +801,7 @@ final class AuroraStore: ObservableObject {
             downloader: HTTPDownloader(metadataTimeout: TimeInterval(settings.repositoryTimeoutSeconds)),
             policy: RepositoryPolicy(
                 requireSignature: !settings.ignoreSignatureFailures,
+                requirePackageDigest: !settings.allowPackagesWithoutDigest,
                 maximumIndexBytes: settings.maximumIndexSizeMB * (1 << 20),
                 useCache: useCache && settings.useRepositoryCache,
                 maximumRefreshSeconds: settings.repositoryRefreshDeadlineSeconds,
@@ -1261,6 +1265,11 @@ final class AuroraStore: ObservableObject {
 
     func setIgnoreSignatureFailures(_ value: Bool) {
         settings.ignoreSignatureFailures = value
+        persistSettings()
+    }
+
+    func setAllowPackagesWithoutDigest(_ value: Bool) {
+        settings.allowPackagesWithoutDigest = value
         persistSettings()
     }
 

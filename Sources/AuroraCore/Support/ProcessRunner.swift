@@ -1,6 +1,8 @@
 import Foundation
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
 #endif
 
 /// Result of running a helper process.
@@ -27,6 +29,8 @@ public struct ProcessResult: Sendable {
 public enum ProcessError: Error, CustomStringConvertible {
     case notExecutable(String)
     case pipeFailed(Int32)
+    case inputWriteFailed(String)
+    case outputLimitExceeded(Int)
     case spawnFailed(String, Int32)
     case waitFailed(Int32)
 
@@ -36,10 +40,14 @@ public enum ProcessError: Error, CustomStringConvertible {
             return "\(path) is not an executable file"
         case .pipeFailed(let code):
             return "could not create a pipe for the helper process (errno \(code))"
+        case .inputWriteFailed(let reason):
+            return "could not prepare helper input: \(reason)"
         case .spawnFailed(let path, let code):
             return "could not start \(path) (errno \(code))"
         case .waitFailed(let code):
             return "could not collect the helper process (errno \(code))"
+        case .outputLimitExceeded(let limit):
+            return "helper output exceeded the \(limit)-byte safety limit"
         }
     }
 }
@@ -100,20 +108,31 @@ public enum ProcessRunner {
         environment: [String: String]? = nil,
         currentDirectory: String? = nil,
         standardInput: Data? = nil,
+        maximumOutputBytes: Int? = nil,
         onOutput: ((Data) -> Void)? = nil
     ) throws -> ProcessResult {
         guard isExecutable(executable) else { throw ProcessError.notExecutable(executable) }
+        let outputLimit = maximumOutputBytes.map { max(0, $0) }
 
         var stdoutPipe: [Int32] = [-1, -1]
         var stderrPipe: [Int32] = [-1, -1]
-        var stdinPipe: [Int32] = [-1, -1]
+        var standardInputPath: String?
+        if let standardInput {
+            let path = (NSTemporaryDirectory() as NSString)
+                .appendingPathComponent("aurora-stdin-\(UUID().uuidString)")
+            do {
+                try standardInput.write(to: URL(fileURLWithPath: path), options: .atomic)
+                standardInputPath = path
+            } catch {
+                throw ProcessError.inputWriteFailed("\(error)")
+            }
+        }
+        defer {
+            if let standardInputPath { try? FileManager.default.removeItem(atPath: standardInputPath) }
+        }
         guard pipe(&stdoutPipe) == 0 else { throw ProcessError.pipeFailed(errno) }
         guard pipe(&stderrPipe) == 0 else {
             close(stdoutPipe[0]); close(stdoutPipe[1])
-            throw ProcessError.pipeFailed(errno)
-        }
-        if standardInput != nil, pipe(&stdinPipe) != 0 {
-            close(stdoutPipe[0]); close(stdoutPipe[1]); close(stderrPipe[0]); close(stderrPipe[1])
             throw ProcessError.pipeFailed(errno)
         }
 
@@ -121,13 +140,22 @@ public enum ProcessRunner {
         posix_spawn_file_actions_init(&actions)
         posix_spawn_file_actions_adddup2(&actions, stdoutPipe[1], STDOUT_FILENO)
         posix_spawn_file_actions_adddup2(&actions, stderrPipe[1], STDERR_FILENO)
-        if standardInput != nil {
-            posix_spawn_file_actions_adddup2(&actions, stdinPipe[0], STDIN_FILENO)
+        if let standardInputPath {
+            let result = standardInputPath.withCString {
+                posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, $0, O_RDONLY, 0)
+            }
+            if result != 0 {
+                posix_spawn_file_actions_destroy(&actions)
+                close(stdoutPipe[0]); close(stdoutPipe[1]); close(stderrPipe[0]); close(stderrPipe[1])
+                throw ProcessError.pipeFailed(result)
+            }
         } else {
             posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
         }
         posix_spawn_file_actions_addclose(&actions, stdoutPipe[0])
         posix_spawn_file_actions_addclose(&actions, stderrPipe[0])
+        posix_spawn_file_actions_addclose(&actions, stdoutPipe[1])
+        posix_spawn_file_actions_addclose(&actions, stderrPipe[1])
         #if os(macOS)
         if let currentDirectory {
             posix_spawn_file_actions_addchdir_np(&actions, currentDirectory)
@@ -165,30 +193,16 @@ public enum ProcessRunner {
 
         close(stdoutPipe[1])
         close(stderrPipe[1])
-        if standardInput != nil { close(stdinPipe[0]) }
 
         guard spawnResult == 0 else {
             close(stdoutPipe[0]); close(stderrPipe[0])
-            if standardInput != nil { close(stdinPipe[1]) }
             throw ProcessError.spawnFailed(executable, spawnResult)
-        }
-
-        if let standardInput {
-            var offset = 0
-            let bytes = [UInt8](standardInput)
-            while offset < bytes.count {
-                let written = bytes.withUnsafeBytes { buffer -> Int in
-                    write(stdinPipe[1], buffer.baseAddress!.advanced(by: offset), bytes.count - offset)
-                }
-                if written <= 0 { break }
-                offset += written
-            }
-            close(stdinPipe[1])
         }
 
         var stdoutData = Data()
         var stderrData = Data()
         var openDescriptors: [Int32] = [stdoutPipe[0], stderrPipe[0]]
+        var exceededOutputLimit = false
 
         while !openDescriptors.isEmpty {
             var descriptors = openDescriptors.map { pollfd(fd: $0, events: Int16(POLLIN), revents: 0) }
@@ -211,8 +225,17 @@ public enum ProcessRunner {
                 let count = read(descriptor, &buffer, buffer.count)
                 if count > 0 {
                     let chunk = Data(buffer[0..<count])
-                    if descriptor == stdoutPipe[0] { stdoutData.append(chunk) } else { stderrData.append(chunk) }
-                    onOutput?(chunk)
+                    if descriptor == stdoutPipe[0],
+                       let outputLimit,
+                       (chunk.count > outputLimit || stdoutData.count > outputLimit - chunk.count) {
+                        if !exceededOutputLimit {
+                            exceededOutputLimit = true
+                            _ = kill(pid, SIGKILL)
+                        }
+                    } else {
+                        if descriptor == stdoutPipe[0] { stdoutData.append(chunk) } else { stderrData.append(chunk) }
+                        onOutput?(chunk)
+                    }
                 } else {
                     close(descriptor)
                     openDescriptors.remove(at: index)
@@ -225,6 +248,9 @@ public enum ProcessRunner {
             if errno != EINTR { throw ProcessError.waitFailed(errno) }
         }
         let exitCode = (status & 0x7f) == 0 ? (status >> 8) & 0xff : -(status & 0x7f)
+        if exceededOutputLimit, let outputLimit {
+            throw ProcessError.outputLimitExceeded(outputLimit)
+        }
 
         return ProcessResult(status: exitCode, stdout: stdoutData, stderr: stderrData)
     }

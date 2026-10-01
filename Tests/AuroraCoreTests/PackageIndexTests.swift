@@ -34,6 +34,28 @@ final class PackageIndexTests: XCTestCase {
         XCTAssertTrue(index.allVersions(of: "nothing").isEmpty)
     }
 
+    func testSearchDeduplicatesBeforeApplyingItsResultLimit() {
+        let repeated = (0..<12).map { version in
+            PackageRecord(stanza: ControlStanza(fields: [
+                ControlField(name: "Package", value: "common-lib"),
+                ControlField(name: "Version", value: "\(version + 1)"),
+                ControlField(name: "Architecture", value: "iphoneos-arm64"),
+                ControlField(name: "Description", value: "matching-term"),
+            ]))
+        }
+        let unique = (0..<3).map { index in
+            PackageRecord(stanza: ControlStanza(fields: [
+                ControlField(name: "Package", value: "unique-\(index)"),
+                ControlField(name: "Version", value: "1"),
+                ControlField(name: "Architecture", value: "iphoneos-arm64"),
+                ControlField(name: "Description", value: "matching-term"),
+            ]))
+        }
+        let results = PackageIndex(records: repeated + unique).search("matching-term", limit: 2)
+        XCTAssertEqual(results.count, 2)
+        XCTAssertTrue(results.contains { $0.name.hasPrefix("unique-") })
+    }
+
     func testBestMatchPicksTheNewestVersion() throws {
         let index = try fixtureIndex()
         let newest = try XCTUnwrap(index.bestMatch(for: DependencyTerm(name: "foo-app"),

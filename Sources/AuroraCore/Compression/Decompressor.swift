@@ -90,20 +90,36 @@ public enum Decompressor {
         "/usr/bin", "/usr/local/bin", "/bin",
     ]
 
-    public static func decompress(_ data: Data, capacityHint: Int? = nil) throws -> Data {
+    public static func decompress(
+        _ data: Data,
+        capacityHint: Int? = nil,
+        maximumOutputBytes: Int = maximumOutputSize
+    ) throws -> Data {
         let magic = [UInt8](data.prefix(16))
-        guard let format = CompressionFormat.detect(magic: magic) else { return data }
-        return try decompress(data, format: format, capacityHint: capacityHint)
+        guard let format = CompressionFormat.detect(magic: magic) else {
+            guard data.count <= maximumOutputBytes else { throw DecompressionError.exceedsLimit(maximumOutputBytes) }
+            return data
+        }
+        return try decompress(data, format: format, capacityHint: capacityHint, maximumOutputBytes: maximumOutputBytes)
     }
 
-    public static func decompress(_ data: Data, format: CompressionFormat, capacityHint: Int? = nil) throws -> Data {
+    public static func decompress(
+        _ data: Data,
+        format: CompressionFormat,
+        capacityHint: Int? = nil,
+        maximumOutputBytes: Int = maximumOutputSize
+    ) throws -> Data {
+        let outputLimit = max(0, maximumOutputBytes)
         switch format {
         case .plain:
+            guard data.count <= outputLimit else { throw DecompressionError.exceedsLimit(outputLimit) }
             return data
 
         case .gzip:
             do {
-                return try ZlibBridge.decompress(data)
+                return try ZlibBridge.decompress(data, maximumOutputBytes: outputLimit)
+            } catch ZlibBridge.Error.outputTooLarge(_) {
+                throw DecompressionError.exceedsLimit(outputLimit)
             } catch {
                 throw DecompressionError.corrupt(.gzip, reason: "\(error)")
             }
@@ -111,38 +127,42 @@ public enum Decompressor {
         case .xz, .lzma:
             #if canImport(Compression)
             do {
-                return try decodeWithAppleCompression(data, hint: capacityHint)
+                return try decodeWithAppleCompression(data, hint: capacityHint, maximumOutputBytes: outputLimit)
             } catch {
                 // A headerless LZMA stream is what a `.lzma` file is after its
                 // 13-byte alone header; Apple's decoder sometimes wants it raw.
                 if format == .lzma, data.count > 13 {
                     let body = data.subdata(in: 13..<data.count)
-                    if let decoded = try? decodeWithAppleCompression(body, hint: capacityHint) {
+                    if let decoded = try? decodeWithAppleCompression(body, hint: capacityHint, maximumOutputBytes: outputLimit) {
                         return decoded
                     }
                 }
                 // Last resort on a device that has the xz tools installed.
-                if let external = try? runHelper(["xz", "unxz"], format: format, input: data) { return external }
+                if let external = try? runHelper(["xz", "unxz"], format: format, input: data, maximumOutputBytes: outputLimit) { return external }
                 throw DecompressionError.corrupt(format, reason: "\(error)")
             }
             #else
-            if let external = try? runHelper(["xz", "unxz"], format: format, input: data) { return external }
+            if let external = try? runHelper(["xz", "unxz"], format: format, input: data, maximumOutputBytes: outputLimit) { return external }
             throw DecompressionError.unsupported(format, hint: "no LZMA decoder is available on this platform")
             #endif
 
         case .bzip2:
-            if let external = try? runHelper(["bunzip2"], format: .bzip2, input: data) { return external }
+            if let external = try? runHelper(["bunzip2"], format: .bzip2, input: data, maximumOutputBytes: outputLimit) { return external }
             throw DecompressionError.unsupported(.bzip2, hint: "no bzip2 decoder is installed on this device")
 
         case .zstd:
-            if let external = try? runHelper(["unzstd", "zstd"], format: .zstd, input: data, extraArguments: ["-d", "-c"]) {
+            if let external = try? runHelper(["unzstd", "zstd"], format: .zstd, input: data, extraArguments: ["-d", "-c"], maximumOutputBytes: outputLimit) {
                 return external
             }
             throw DecompressionError.unsupported(.zstd, hint: "no zstd decoder is installed on this device")
         }
     }
 
-    public static func decompressFile(at path: String, format: CompressionFormat? = nil) throws -> Data {
+    public static func decompressFile(
+        at path: String,
+        format: CompressionFormat? = nil,
+        maximumOutputBytes: Int = maximumOutputSize
+    ) throws -> Data {
         let data: Data
         do {
             data = try Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe)
@@ -150,7 +170,7 @@ public enum Decompressor {
             throw DecompressionError.corrupt(format ?? .plain, reason: "cannot read \(path): \(error)")
         }
         let resolved = format ?? CompressionFormat.detect(magic: [UInt8](data.prefix(16))) ?? .plain
-        return try decompress(data, format: resolved)
+        return try decompress(data, format: resolved, maximumOutputBytes: maximumOutputBytes)
     }
 
     // MARK: - Platform decoders
@@ -160,12 +180,13 @@ public enum Decompressor {
     /// known up front, so grow the destination until the stream fits. The attempt
     /// count is bounded: a corrupt file must fail quickly instead of allocating
     /// half a gigabyte on the way to its own error message.
-    private static func decodeWithAppleCompression(_ data: Data, hint: Int?) throws -> Data {
+    private static func decodeWithAppleCompression(_ data: Data, hint: Int?, maximumOutputBytes: Int) throws -> Data {
         guard !data.isEmpty else { return Data() }
+        guard maximumOutputBytes > 0 else { throw DecompressionError.exceedsLimit(maximumOutputBytes) }
 
-        var capacity = max(hint ?? 0, 1 << 18)
+        var capacity = min(maximumOutputBytes, max(hint ?? 0, 1 << 18))
         var attempts = 0
-        while attempts < 12, capacity <= maximumOutputSize {
+        while attempts < 12, capacity <= maximumOutputBytes {
             attempts += 1
             var destination = [UInt8](repeating: 0, count: capacity)
             let produced = data.withUnsafeBytes { (source: UnsafeRawBufferPointer) -> Int in
@@ -183,10 +204,7 @@ public enum Decompressor {
             }
             capacity *= 2
         }
-        throw DecompressionError.corrupt(
-            .xz,
-            reason: "Apple's LZMA decoder returned nothing for \(data.count) bytes"
-        )
+        throw DecompressionError.exceedsLimit(maximumOutputBytes)
     }
     #endif
 
@@ -195,17 +213,26 @@ public enum Decompressor {
         _ names: [String],
         format: CompressionFormat,
         input: Data,
-        extraArguments: [String] = []
+        extraArguments: [String] = [],
+        maximumOutputBytes: Int
     ) throws -> Data {
         for name in names {
             guard let path = ProcessRunner.which(name, searchPaths: helperSearchPaths) else { continue }
             let arguments = extraArguments.isEmpty ? ["-dc"] : extraArguments
-            guard let result = try? ProcessRunner.run(
-                executable: path,
-                arguments: arguments,
-                standardInput: input
-            ), result.succeeded, !result.stdout.isEmpty else { continue }
-            return result.stdout
+            do {
+                let result = try ProcessRunner.run(
+                    executable: path,
+                    arguments: arguments,
+                    standardInput: input,
+                    maximumOutputBytes: maximumOutputBytes
+                )
+                guard result.succeeded, !result.stdout.isEmpty else { continue }
+                return result.stdout
+            } catch ProcessError.outputLimitExceeded(let limit) {
+                throw DecompressionError.exceedsLimit(limit)
+            } catch {
+                continue
+            }
         }
         throw DecompressionError.unsupported(
             format,

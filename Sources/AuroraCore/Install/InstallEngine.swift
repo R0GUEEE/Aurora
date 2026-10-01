@@ -137,7 +137,7 @@ public actor InstallEngine {
                 progress?(.downloading(package: record.name, received: received, total: total))
             }
             progress?(.verifying(package: record.name))
-            try verify(record: record, at: path)
+            try await verify(record: record, at: path)
             localPaths[Self.archiveKey(for: record)] = path
         }
         return localPaths
@@ -148,7 +148,12 @@ public actor InstallEngine {
     /// The index is remote data; the archive is the thing that will actually run
     /// maintainer scripts as root. If `Package` or `Version` disagree, the plan was
     /// built on a lie and the transaction must not start.
-    public func verify(record: PackageRecord, at path: String) throws {
+    public func verify(record: PackageRecord, at path: String) async throws {
+        if !LocalPackageLoader.isLocalRecord(record) {
+            guard try await repositoryClient.verifyDownloadedFile(at: path, record: record) else {
+                throw InstallError.archiveIntegrityFailure(path: path)
+            }
+        }
         let archive = try DebArchive(path: path)
         let stanza = try archive.controlStanza()
         let name = stanza.string("Package") ?? ""
@@ -234,7 +239,7 @@ public actor InstallEngine {
             }
             if let path = paths[Self.archiveKey(for: record_)] {
                 progress?(.verifying(package: record_.name))
-                try verify(record: record_, at: path)
+                try await verify(record: record_, at: path)
                 record("verified \(record_.name) \(record_.version.raw) (\((try? DebArchive(path: path).members.count) ?? 0) archive members)")
             }
         }
@@ -354,6 +359,7 @@ public enum InstallError: Error, CustomStringConvertible {
     case notEnoughSpace(required: Int64, available: Int64)
     case archiveMismatch(path: String, expected: String, found: String)
     case archiveVersionMismatch(package: String, expected: String, found: String)
+    case archiveIntegrityFailure(path: String)
 
     public var description: String {
         switch self {
@@ -369,6 +375,8 @@ public enum InstallError: Error, CustomStringConvertible {
             return "\(path) is not the expected package: wanted \(expected), found \(found)"
         case .archiveVersionMismatch(let package, let expected, let found):
             return "\(package) on disk is \(found), the plan asked for \(expected)"
+        case .archiveIntegrityFailure(let path):
+            return "\(path) failed its repository size or digest check"
         }
     }
 }

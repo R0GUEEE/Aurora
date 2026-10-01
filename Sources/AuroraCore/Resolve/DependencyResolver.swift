@@ -310,13 +310,14 @@ private final class Resolution {
             if case .recommendsNotInstalled = warning { return true }
             return false
         }
-        var pending = target.all.filter { record in
-            explicitNames.contains(record.name) || installed.package(named: record.name) != nil
-        }
+        // Re-check only packages this transaction touches. Walking every installed
+        // package here made an unrelated pre-existing broken dependency block all
+        // new installs, despite verify() deliberately allowing that device state.
+        var pending = target.all.filter { inTransaction.contains($0.name) }
         var processed: Set<String> = []
 
         while let record = pending.popLast() {
-            guard processed.insert(record.instanceKey).inserted else { continue }
+            guard processed.insert("\(record.instanceKey)=\(record.version.raw)").inserted else { continue }
             // A dependency of an `arm` package is resolved against `arm`, not
             // against the device's own architecture.
             let requested = record.architecture
@@ -336,6 +337,7 @@ private final class Resolution {
                     // Already present at another version: this is an upgrade of an
                     // existing install, not a new dependency.
                     inTransaction.insert(added.name)
+                    pending.append(added)
                 } else {
                     pulledInNames.insert(added.name)
                     inTransaction.insert(added.name)

@@ -58,6 +58,7 @@ func usage() -> String {
       --autoremove             Remove dependencies nothing needs any more
       --unhold <a,b>           Ignore holds for this run
       --held                   Include held packages in 'updates'
+      --allow-unsigned         Allow unsigned/unverifiable repository metadata
       --json                   Machine-readable output
     """
 }
@@ -150,6 +151,7 @@ func architecture(_ options: Options) -> String {
 }
 
 let policyStore = PackagePolicy.Store()
+var allowUnsignedRepositories = false
 
 func resolverPolicy(_ options: Options) -> DependencyResolver.Policy {
     var packagePolicy = policyStore.load().policy
@@ -185,7 +187,10 @@ func loadIndex(
     }
     guard !sources.isEmpty else { throw CLIError.notFound("no enabled repository") }
 
-    let client = RepositoryClient(environment: environment)
+    let client = RepositoryClient(
+        environment: environment,
+        policy: RepositoryPolicy(requireSignature: !allowUnsignedRepositories)
+    )
     var index = PackageIndex()
     var refreshes: [RepositoryRefresh] = []
     var warnings: [String] = []
@@ -804,6 +809,7 @@ func commandDeb(_ arguments: [String]) throws {
 // MARK: - Entry point
 
 let rawArguments = Array(CommandLine.arguments.dropFirst())
+allowUnsignedRepositories = rawArguments.contains("--allow-unsigned")
 let command = rawArguments.first
 let rest = Array(rawArguments.dropFirst())
 

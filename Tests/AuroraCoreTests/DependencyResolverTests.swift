@@ -86,6 +86,24 @@ final class DependencyResolverTests: XCTestCase {
                        "the upgrade's new 2048 KiB replaces the installed 2000 KiB")
     }
 
+    func testUnrelatedInstallCanProceedWithPreexistingUnmetDependency() throws {
+        var database = try fixtureDatabase()
+        database.set(ControlStanza(fields: [
+            ControlField(name: "Package", value: "stale-broken-package"),
+            ControlField(name: "Version", value: "1"),
+            ControlField(name: "Architecture", value: "iphoneos-arm64"),
+            ControlField(name: "Status", value: "install ok installed"),
+            ControlField(name: "Depends", value: "missing-from-all-repositories"),
+        ]))
+        let index = try fixtureIndex()
+        let record = try XCTUnwrap(index.candidates(named: "arch-all-tool").first)
+        let resolver = DependencyResolver(available: index, installed: database, policy: .default)
+
+        let plan = try resolver.resolve(staged(.install(record)))
+        XCTAssertTrue(plan.installed.contains { $0.name == "arch-all-tool" })
+        XCTAssertFalse(plan.installed.contains { $0.name == "stale-broken-package" })
+    }
+
     // MARK: - (b) A virtual name
 
     func testInstallingMailclientPullsTheVirtualProvider() throws {

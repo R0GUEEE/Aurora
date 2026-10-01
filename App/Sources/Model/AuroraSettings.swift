@@ -85,10 +85,12 @@ enum AppTab: String, CaseIterable, Codable, Identifiable {
 struct AuroraSettings: Codable, Equatable {
     /// Refresh every enabled repository when the app launches.
     var autoRefreshOnLaunch: Bool
-    /// Treat an unsigned or unverifiable repository as acceptable. On by default:
-    /// most jailbreak repositories are unsigned, and refusing them would leave
-    /// the store empty. `AuroraCore` still reports the state of every source.
+    /// Treat unsigned or unverifiable repository metadata as acceptable.
     var ignoreSignatureFailures: Bool
+    /// Settings schema used to migrate the former permissive signature default.
+    var settingsSchemaVersion: Int
+    /// Permit installing packages whose repository index publishes no SHA-256/512 digest.
+    var allowPackagesWithoutDigest: Bool
     /// Hide packages that cannot work in a rootless layout.
     var showOnlyRootlessCompatible: Bool
     /// Offer an explicit best-effort conversion action for legacy rootful packages.
@@ -124,7 +126,8 @@ struct AuroraSettings: Codable, Equatable {
 
     init(
         autoRefreshOnLaunch: Bool = true,
-        ignoreSignatureFailures: Bool = true,
+        ignoreSignatureFailures: Bool = false,
+        allowPackagesWithoutDigest: Bool = false,
         showOnlyRootlessCompatible: Bool = true,
         allowRootfulConversion: Bool = false,
         depictionPreference: DepictionPreference = .native,
@@ -155,6 +158,8 @@ struct AuroraSettings: Codable, Equatable {
     ) {
         self.autoRefreshOnLaunch = autoRefreshOnLaunch
         self.ignoreSignatureFailures = ignoreSignatureFailures
+        self.settingsSchemaVersion = 1
+        self.allowPackagesWithoutDigest = allowPackagesWithoutDigest
         self.showOnlyRootlessCompatible = showOnlyRootlessCompatible
         self.allowRootfulConversion = allowRootfulConversion
         self.depictionPreference = depictionPreference
@@ -187,6 +192,8 @@ struct AuroraSettings: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case autoRefreshOnLaunch
         case ignoreSignatureFailures
+        case settingsSchemaVersion
+        case allowPackagesWithoutDigest
         case showOnlyRootlessCompatible
         case allowRootfulConversion
         case depictionPreference
@@ -220,8 +227,16 @@ struct AuroraSettings: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.autoRefreshOnLaunch =
             (try? container.decode(Bool.self, forKey: .autoRefreshOnLaunch)) ?? true
-        self.ignoreSignatureFailures =
-            (try? container.decode(Bool.self, forKey: .ignoreSignatureFailures)) ?? true
+        let schemaVersion = (try? container.decode(Int.self, forKey: .settingsSchemaVersion)) ?? 0
+        self.settingsSchemaVersion = 1
+        // Before schema 1 this preference defaulted to true, so persisted true
+        // values cannot represent a deliberate user choice. Migrate those files
+        // to enforced signatures; the user can opt back in from Settings.
+        self.ignoreSignatureFailures = schemaVersion == 0
+            ? false
+            : ((try? container.decode(Bool.self, forKey: .ignoreSignatureFailures)) ?? false)
+        self.allowPackagesWithoutDigest =
+            (try? container.decode(Bool.self, forKey: .allowPackagesWithoutDigest)) ?? false
         self.showOnlyRootlessCompatible =
             (try? container.decode(Bool.self, forKey: .showOnlyRootlessCompatible)) ?? true
         self.allowRootfulConversion =

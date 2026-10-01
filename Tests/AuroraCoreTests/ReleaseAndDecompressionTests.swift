@@ -184,6 +184,15 @@ final class ReleaseAndDecompressionTests: XCTestCase {
                              "half a gzip stream is corruption, not a smaller index")
     }
 
+    func testGzipExpansionStopsAtTheConfiguredOutputLimit() throws {
+        let gzip = try Fixture.data(Fixture.packagesIndexGzip)
+        XCTAssertThrowsError(try Decompressor.decompress(gzip, format: .gzip, maximumOutputBytes: 16)) { error in
+            guard case DecompressionError.exceedsLimit = error else {
+                return XCTFail("expected output-limit error, got \(error)")
+            }
+        }
+    }
+
     // MARK: - InRelease
 
     func testClearsignedMessageUnescapesAndStripsHeaders() throws {
