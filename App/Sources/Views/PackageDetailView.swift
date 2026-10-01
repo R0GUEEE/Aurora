@@ -26,6 +26,14 @@ struct PackageDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(record.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { store.toggleBookmark(record.name) } label: {
+                    Image(systemName: store.isBookmarked(record.name) ? "bookmark.fill" : "bookmark")
+                }
+                .accessibilityLabel(store.isBookmarked(record.name) ? "Remove bookmark" : "Bookmark package")
+            }
+        }
         .sheet(isPresented: $isChoosingVersion) {
             VersionChooserSheet(
                 store: store,
@@ -170,6 +178,28 @@ struct PackageDetailView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+            }
+            let compatibility = PackageCompatibility.evaluate(record, environment: store.environment)
+            HStack {
+                Text("Compatibility")
+                Spacer()
+                Label(
+                    compatibility.level.rawValue.capitalized,
+                    systemImage: compatibility.level == .compatible ? "checkmark.circle.fill" :
+                        (compatibility.level == .warning ? "exclamationmark.triangle.fill" : "xmark.octagon.fill")
+                )
+                .font(.caption)
+                .foregroundColor(compatibility.level == .compatible ? .green :
+                    (compatibility.level == .warning ? .orange : .red))
+            }
+            ForEach(compatibility.reasons, id: \.self) { reason in
+                Text(reason).font(.caption).foregroundColor(.secondary)
+            }
+            if let changelog = record.changelogURL, let url = URL(string: changelog) {
+                Link("Changelog", destination: url)
+            }
+            if let support = record.supportURL, let url = URL(string: support) {
+                Link("Support", destination: url)
             }
             if !record.tags.isEmpty {
                 DetailRow(label: "Tags", value: record.tags.joined(separator: ", "))

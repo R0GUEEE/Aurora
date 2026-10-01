@@ -119,7 +119,7 @@ final class PackagePolicyTests: XCTestCase {
         policy.pin(.hold, for: "widget")
         XCTAssertTrue(policy.allows("widget"))
         XCTAssertTrue(policy.isHeld("widget"))
-        XCTAssertFalse(policy.allows("something-else"))
+        XCTAssertTrue(policy.allows("something-else"), "unmentioned packages are allowed by default")
         XCTAssertFalse(policy.isHeld("something-else"))
     }
 
