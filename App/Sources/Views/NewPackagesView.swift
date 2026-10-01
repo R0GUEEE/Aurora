@@ -32,7 +32,7 @@ struct NewPackagesView: View {
                         PackageDetailView(store: store, record: record)
                     } label: {
                         VStack(alignment: .leading, spacing: 3) {
-                            PackageRow(record: record, state: store.state(for: record))
+                            PackageRow(record: record, state: store.state(for: record), showIcon: store.settings.showPackageIcons, compact: store.settings.compactPackageRows, showDescription: store.settings.showPackageDescriptions)
                             if let date = AuroraStore.publishedDate(for: record) {
                                 Text("Published \(date.formatted(date: .abbreviated, time: .omitted))")
                                     .font(.caption2)
