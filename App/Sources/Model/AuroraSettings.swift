@@ -31,6 +31,49 @@ enum DepictionPreference: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+
+
+enum AppTab: String, CaseIterable, Codable, Identifiable {
+    case browse
+    case newPackages
+    case installed
+    case library
+    case sources
+    case search
+    case queue
+    case settings
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .browse: return "Browse"
+        case .newPackages: return "New"
+        case .installed: return "Installed"
+        case .library: return "Library"
+        case .sources: return "Sources"
+        case .search: return "Search"
+        case .queue: return "Queue"
+        case .settings: return "Settings"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .browse: return "square.grid.2x2"
+        case .newPackages: return "sparkles"
+        case .installed: return "shippingbox"
+        case .library: return "bookmark"
+        case .sources: return "square.stack.3d.up"
+        case .search: return "magnifyingglass"
+        case .queue: return "arrow.down.circle"
+        case .settings: return "gearshape"
+        }
+    }
+
+    static let defaultTabs: [AppTab] = [.browse, .newPackages, .installed, .sources, .queue]
+}
+
 /// Everything the Settings screen can change.
 ///
 /// Decoding is deliberately tolerant: a settings file written by an older build
@@ -48,19 +91,22 @@ struct AuroraSettings: Codable, Equatable {
     /// Offer an explicit best-effort conversion action for legacy rootful packages.
     var allowRootfulConversion: Bool
     var depictionPreference: DepictionPreference
+    var tabs: [AppTab]
 
     init(
         autoRefreshOnLaunch: Bool = true,
         ignoreSignatureFailures: Bool = true,
         showOnlyRootlessCompatible: Bool = true,
         allowRootfulConversion: Bool = false,
-        depictionPreference: DepictionPreference = .native
+        depictionPreference: DepictionPreference = .native,
+        tabs: [AppTab] = AppTab.defaultTabs
     ) {
         self.autoRefreshOnLaunch = autoRefreshOnLaunch
         self.ignoreSignatureFailures = ignoreSignatureFailures
         self.showOnlyRootlessCompatible = showOnlyRootlessCompatible
         self.allowRootfulConversion = allowRootfulConversion
         self.depictionPreference = depictionPreference
+        self.tabs = Self.sanitizedTabs(tabs)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -69,6 +115,7 @@ struct AuroraSettings: Codable, Equatable {
         case showOnlyRootlessCompatible
         case allowRootfulConversion
         case depictionPreference
+        case tabs
     }
 
     init(from decoder: Decoder) throws {
@@ -83,6 +130,13 @@ struct AuroraSettings: Codable, Equatable {
             (try? container.decode(Bool.self, forKey: .allowRootfulConversion)) ?? false
         self.depictionPreference =
             (try? container.decode(DepictionPreference.self, forKey: .depictionPreference)) ?? .native
+        self.tabs = Self.sanitizedTabs((try? container.decode([AppTab].self, forKey: .tabs)) ?? AppTab.defaultTabs)
+    }
+
+    static func sanitizedTabs(_ tabs: [AppTab]) -> [AppTab] {
+        var seen = Set<AppTab>()
+        let unique = tabs.filter { seen.insert($0).inserted }
+        return unique.isEmpty ? AppTab.defaultTabs : Array(unique.prefix(5))
     }
 }
 
