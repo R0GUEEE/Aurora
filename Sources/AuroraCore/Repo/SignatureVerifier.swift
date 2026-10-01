@@ -158,20 +158,37 @@ public struct SignatureVerifier: Sendable {
             if result.succeeded {
                 return .verified(fingerprint: fingerprint(in: output))
             }
-            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            let reason = trimmed.split(separator: "\n").last.map(String.init) ?? "unknown error"
-            if isUnknownSigningKey(output) {
-                return .untrusted(reason: reason)
-            }
-            return .rejected(reason: reason)
+            return Self.failedVerificationStatus(output)
         } catch {
             return .unavailable(reason: "\(error)")
         }
     }
 
-    private func isUnknownSigningKey(_ output: String) -> Bool {
+    /// Converts verifier diagnostics into a trust state. Invalid-signature
+    /// evidence always wins over unknown-key evidence so a multi-signature file
+    /// cannot hide a bad signature behind another signature whose key is missing.
+    static func failedVerificationStatus(_ output: String) -> SignatureStatus {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reason = trimmed.split(separator: "\n").last.map(String.init) ?? "unknown error"
         let lower = output.lowercased()
-        let markers = [
+
+        let invalidMarkers = [
+            "bad signature",
+            "invalid signature",
+            "signature verification failed",
+            "malformed signature",
+            "malformed openpgp",
+            "invalid openpgp",
+            "no valid openpgp data",
+            "invalid packet",
+            "corrupt signature",
+            "corrupted signature",
+        ]
+        if invalidMarkers.contains(where: { lower.contains($0) }) {
+            return .rejected(reason: reason)
+        }
+
+        let unknownKeyMarkers = [
             "no public key",
             "can't check signature",
             "cannot check signature",
@@ -184,7 +201,11 @@ public struct SignatureVerifier: Sendable {
             "no matching key",
             "no suitable key",
         ]
-        return markers.contains { lower.contains($0) }
+        if unknownKeyMarkers.contains(where: { lower.contains($0) }) {
+            return .untrusted(reason: reason)
+        }
+
+        return .rejected(reason: reason)
     }
 
     private var childEnvironment: [String: String] {
