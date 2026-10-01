@@ -199,6 +199,9 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
             }
+            ForEach(store.cacheBreakdown(), id: \.name) { item in
+                DetailRow(label: item.name, value: AuroraFormat.bytes(item.bytes))
+            }
             if let statusText = statusText {
                 Text(statusText)
                     .font(.footnote)
@@ -216,6 +219,15 @@ struct SettingsView: View {
     private var diagnosticsSection: some View {
         Section {
             Button("Show state files") { isShowingLogs = true }
+            ShareLink(item: store.diagnosticsReport) {
+                Label("Share Diagnostics Report", systemImage: "square.and.arrow.up")
+            }
+            Button {
+                UIPasteboard.general.string = store.diagnosticsReport
+                statusText = "Diagnostics copied to clipboard."
+            } label: {
+                Label("Copy Diagnostics", systemImage: "doc.on.doc")
+            }
             if let message = store.sourcesPersistenceError {
                 NoticeRow(symbol: "externaldrive.badge.exclamationmark", text: message, color: .orange)
             }
