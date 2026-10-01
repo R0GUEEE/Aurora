@@ -337,6 +337,7 @@ private struct PackageCollectionView: View {
     @ObservedObject var store: AuroraStore
     let collection: String
     @State private var query = ""
+    @State private var message: String?
 
     private var names: [String] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -353,6 +354,10 @@ private struct PackageCollectionView: View {
 
     var body: some View {
         List {
+            if let message {
+                Text(message).font(.footnote).foregroundStyle(.secondary)
+            }
+
             if names.isEmpty {
                 EmptyMessage(
                     symbol: "folder",
