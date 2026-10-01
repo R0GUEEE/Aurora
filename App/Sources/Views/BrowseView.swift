@@ -74,7 +74,7 @@ struct BrowseView: View {
                 Button {
                     isShowingFilters = true
                 } label: {
-                    Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    Image(systemName: (hasActiveFilters || sort != .name) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
                 .accessibilityLabel("Browse filters")
             }
