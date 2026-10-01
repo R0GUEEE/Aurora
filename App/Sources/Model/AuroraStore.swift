@@ -579,10 +579,13 @@ final class AuroraStore: ObservableObject {
         return .installed
     }
 
-    /// Whether a newer version than the installed one exists for this name.
+    var upgradePlan: UpgradePlanner.Plan {
+        UpgradePlanner(available: combinedIndex, installed: installed, policy: makeResolver().policy).plan()
+    }
+
+    /// Whether policy and architecture rules permit a newer candidate.
     func hasUpdate(named name: String) -> Bool {
-        guard let current = installed.package(named: name) else { return false }
-        return newestRecord(named: name, newerThan: current.version) != nil
+        upgradePlan.upgradable.contains { $0.name == name }
     }
 
     /// The action a user expects when they tap Install on `record`.
