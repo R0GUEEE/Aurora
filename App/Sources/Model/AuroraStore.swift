@@ -770,6 +770,15 @@ final class AuroraStore: ObservableObject {
         persistSettings()
     }
 
+    func setTabs(_ tabs: [AppTab]) {
+        settings.tabs = AuroraSettings.sanitizedTabs(tabs)
+        persistSettings()
+    }
+
+    func resetTabs() {
+        setTabs(AppTab.defaultTabs)
+    }
+
     private func persistSettings() {
         do {
             try settingsStore.save(settings)
