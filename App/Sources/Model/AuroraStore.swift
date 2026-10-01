@@ -230,6 +230,36 @@ final class AuroraStore: ObservableObject {
         rebuildIndexes()
     }
 
+    func setAllSourcesEnabled(_ enabled: Bool) {
+        for index in sources.indices { sources[index].isEnabled = enabled }
+        persistSources()
+        rebuildIndexes()
+    }
+
+    func removeFailedSources() {
+        let failed = Set(indexErrors.compactMap { $0.value == nil ? nil : $0.key })
+        guard !failed.isEmpty else { return }
+        sources.removeAll { failed.contains($0.id) && !$0.isBuiltIn }
+        for id in failed {
+            indexBySource[id] = nil
+            indexErrors[id] = nil
+            indexWarnings[id] = nil
+            signatureStatus[id] = nil
+        }
+        persistSources()
+        rebuildIndexes()
+        statusMessage = "Removed failed non-built-in repositories."
+    }
+
+    var failedSourceIDs: [UUID] {
+        sources.compactMap { indexErrors[$0.id] == nil ? nil : $0.id }
+    }
+
+    func refreshFailedSources() async {
+        let ids = failedSourceIDs
+        for id in ids { await refresh(sourceID: id) }
+    }
+
     func restoreDefaultSources() {
         var list = RepositoryList(sources: sources)
         var added = 0
