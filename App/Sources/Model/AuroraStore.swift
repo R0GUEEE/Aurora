@@ -426,7 +426,7 @@ final class AuroraStore: ObservableObject {
 
     func refreshAll(forceReload: Bool = true) async {
         let allEnabled = sources.filter(\.isEnabled)
-        let enabled = settings.skipFailedRepositories
+        let enabled = (settings.skipFailedRepositories && !settings.refreshFailedRepositories)
             ? allEnabled.filter { indexErrors[$0.id] == nil }
             : allEnabled
         let skipped = allEnabled.count - enabled.count
@@ -452,6 +452,7 @@ final class AuroraStore: ObservableObject {
         let concurrency = min(settings.refreshConcurrency, enabled.count)
         let environment = self.environment
         let requireSignature = !settings.ignoreSignatureFailures
+        let metadataTimeout = TimeInterval(settings.repositoryTimeoutSeconds)
         var completed = 0
         var next = 0
 
@@ -460,6 +461,7 @@ final class AuroraStore: ObservableObject {
                 group.addTask {
                     let client = RepositoryClient(
                         environment: environment,
+                        downloader: HTTPDownloader(metadataTimeout: metadataTimeout),
                         policy: RepositoryPolicy(
                             requireSignature: requireSignature,
                             useCache: useCache
@@ -553,6 +555,7 @@ final class AuroraStore: ObservableObject {
     private func makeRepositoryClient(useCache: Bool = true) -> RepositoryClient {
         RepositoryClient(
             environment: environment,
+            downloader: HTTPDownloader(metadataTimeout: TimeInterval(settings.repositoryTimeoutSeconds)),
             policy: RepositoryPolicy(
                 requireSignature: !settings.ignoreSignatureFailures,
                 useCache: useCache
@@ -1050,6 +1053,16 @@ final class AuroraStore: ObservableObject {
 
     func setRefreshConcurrency(_ value: Int) {
         settings.refreshConcurrency = min(12, max(2, value))
+        persistSettings()
+    }
+
+    func setRepositoryTimeoutSeconds(_ value: Int) {
+        settings.repositoryTimeoutSeconds = min(60, max(3, value))
+        persistSettings()
+    }
+
+    func setRefreshFailedRepositories(_ value: Bool) {
+        settings.refreshFailedRepositories = value
         persistSettings()
     }
 
