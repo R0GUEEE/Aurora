@@ -528,6 +528,7 @@ struct AddSourceSheet: View {
     @State private var urlText = ""
     @State private var name = ""
     @State private var errorMessage: String?
+    @State private var isValidating = false
 
     var body: some View {
         NavigationStack {
@@ -559,20 +560,34 @@ struct AddSourceSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Add") { add() }
-                        .disabled(urlText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button {
+                        Task { await add() }
+                    } label: {
+                        if isValidating { ProgressView() } else { Text("Add") }
+                    }
+                    .disabled(urlText.trimmingCharacters(in: .whitespaces).isEmpty || isValidating)
                 }
             }
         }
     }
 
-    private func add() {
-        let message = store.addSource(
-            urlText: urlText,
-            name: name
-        )
-        if let message = message {
+    private func add() async {
+        isValidating = true
+        defer { isValidating = false }
+        let value = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let message = store.addSource(urlText: value, name: name) {
             errorMessage = message
+            return
+        }
+        guard let id = store.sourceID(matchingURL: value) else {
+            errorMessage = "Repository was added but could not be validated."
+            return
+        }
+        if let validationError = await store.validateSource(id: id) {
+            // Keep the source visible for diagnostics/manual retry, but disable it
+            // immediately so a bad URL cannot poison Refresh All.
+            store.setSourceEnabled(id: id, enabled: false)
+            errorMessage = "Repository could not be validated and was disabled: \(validationError)"
             return
         }
         dismiss()
