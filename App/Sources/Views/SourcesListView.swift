@@ -64,6 +64,24 @@ struct SourcesListView: View {
                 Text("\(store.totalPackageCount) packages in the merged index.")
             }
 
+            Section("Repository Health") {
+                LabeledContent("Enabled", value: "\(store.sources.filter(\.isEnabled).count) / \(store.sources.count)")
+                LabeledContent("Failed", value: "\(store.failedSourceIDs.count)")
+                Button("Retry Failed Repositories") {
+                    Task { await store.refreshFailedSources() }
+                }
+                .disabled(store.failedSourceIDs.isEmpty || store.refreshState.isRefreshing)
+
+                Menu("Bulk Actions") {
+                    Button("Enable All") { store.setAllSourcesEnabled(true) }
+                    Button("Disable All") { store.setAllSourcesEnabled(false) }
+                    Button("Remove Failed Custom Repositories", role: .destructive) {
+                        store.removeFailedSources()
+                    }
+                    .disabled(store.failedSourceIDs.isEmpty)
+                }
+            }
+
             Section("Transfer") {
                 ShareLink(item: store.exportedSources, subject: Text("Aurora Sources")) {
                     Label("Export Sources", systemImage: "square.and.arrow.up")
@@ -181,6 +199,15 @@ struct RepositoryDetailView: View {
                     LabeledContent("Suite", value: source.suite)
                     LabeledContent("Packages", value: "\(store.packageCount(for: sourceID))")
                     LabeledContent("Updated", value: AuroraFormat.relative(source.lastRefreshed))
+                    Stepper(
+                        "Priority: \(store.sourcePriority(id: sourceID))",
+                        value: Binding(
+                            get: { store.sourcePriority(id: sourceID) },
+                            set: { store.setSourcePriority(id: sourceID, priority: $0) }
+                        ),
+                        in: 0...1000,
+                        step: 50
+                    )
                     if let signature = store.signatureDescription(for: sourceID) {
                         LabeledContent("Signature", value: signature)
                     }
