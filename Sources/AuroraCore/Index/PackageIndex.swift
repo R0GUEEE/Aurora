@@ -11,6 +11,7 @@ public struct PackageIndex: Sendable {
     public private(set) var records: [PackageRecord] = []
     private var byName: [String: [Int]] = [:]
     private var byProvidedName: [String: [Int]] = [:]
+    private var normalizedSearchText: [String] = []
 
     public init() {}
 
@@ -25,6 +26,7 @@ public struct PackageIndex: Sendable {
     public mutating func append(_ record: PackageRecord) {
         let index = records.count
         records.append(record)
+        normalizedSearchText.append(Self.searchText(for: record))
         byName[record.name, default: []].append(index)
         for provided in record.relations.provides {
             byProvidedName[provided.name, default: []].append(index)
@@ -35,6 +37,7 @@ public struct PackageIndex: Sendable {
         guard !other.records.isEmpty else { return }
         let offset = records.count
         records.append(contentsOf: other.records)
+        normalizedSearchText.append(contentsOf: other.normalizedSearchText)
         for (name, indexes) in other.byName {
             byName[name, default: []].append(contentsOf: indexes.map { $0 + offset })
         }
@@ -46,6 +49,7 @@ public struct PackageIndex: Sendable {
     private mutating func rebuildLookupTables() {
         byName.removeAll(keepingCapacity: true)
         byProvidedName.removeAll(keepingCapacity: true)
+        normalizedSearchText = records.map(Self.searchText(for:))
         byName.reserveCapacity(records.count)
         for (index, record) in records.enumerated() {
             byName[record.name, default: []].append(index)
@@ -209,16 +213,9 @@ public struct PackageIndex: Sendable {
     public func search(_ query: String, section: String? = nil, limit: Int = 200) -> [PackageRecord] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         var results: [PackageRecord] = []
-        for record in records {
+        for (index, record) in records.enumerated() {
             if let section, !section.isEmpty, record.section != section { continue }
-            if needle.isEmpty {
-                results.append(record)
-            } else if record.name.lowercased().contains(needle)
-                || record.displayName.lowercased().contains(needle)
-                || record.synopsis.lowercased().contains(needle)
-                || record.section.lowercased().contains(needle)
-                || (record.author?.lowercased().contains(needle) ?? false)
-                || record.maintainer.lowercased().contains(needle) {
+            if needle.isEmpty || normalizedSearchText[index].contains(needle) {
                 results.append(record)
             }
             if results.count >= limit * 4 { break }
@@ -243,6 +240,17 @@ public struct PackageIndex: Sendable {
             if lName.hasPrefix(needle) != rName.hasPrefix(needle) { return lName.hasPrefix(needle) }
             return Self.isPreferred($0, $1)
         }.prefix(limit).map { $0 }
+    }
+
+    private static func searchText(for record: PackageRecord) -> String {
+        [
+            record.name,
+            record.displayName,
+            record.synopsis,
+            record.section,
+            record.author ?? "",
+            record.maintainer
+        ].joined(separator: "\u{1F}").lowercased()
     }
 
     /// Section name → number of packages, most populated first.
