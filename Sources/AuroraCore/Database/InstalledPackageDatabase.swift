@@ -149,8 +149,15 @@ public struct InstalledPackageDatabase: Sendable {
     public mutating func markRemoved(name: String, purge: Bool, architecture: String? = nil) {
         guard let entry = package(named: name, architecture: architecture) else { return }
         if purge {
-            // Remove every instance of that name, not just the first.
-            packages = packages.filter { $0.value.name != name }
+            if let architecture {
+                // A qualified purge removes only that concrete instance. Purging
+                // every architecture of a Multi-Arch package corrupts the model.
+                packages = packages.filter {
+                    !($0.value.name == name && $0.value.architecture == architecture)
+                }
+            } else {
+                packages = packages.filter { $0.value.name != name }
+            }
         } else {
             var stanza = entry.stanza
             stanza["Status"] = "deinstall ok config-files"
