@@ -31,7 +31,11 @@ struct SourcesListView: View {
                 } else {
                     // Swipe left to delete, swipe right to refresh one repository.
                     ForEach(store.sources) { source in
-                        SourceRow(store: store, source: source)
+                        NavigationLink {
+                            RepositoryDetailView(store: store, sourceID: source.id)
+                        } label: {
+                            SourceRow(store: store, source: source)
+                        }
                             .swipeActions(edge: .leading) {
                                 Button {
                                     Task { await store.refresh(sourceID: source.id) }
@@ -138,6 +142,98 @@ struct SourcesListView: View {
                     .padding(.vertical, 6)
                     .background(Capsule().fill(Color(.secondarySystemBackground)))
                     .padding(.bottom, 8)
+            }
+        }
+    }
+}
+
+
+@MainActor
+struct RepositoryDetailView: View {
+    @ObservedObject var store: AuroraStore
+    let sourceID: UUID
+    @State private var query = ""
+
+    private var source: RepositorySource? {
+        store.sources.first { $0.id == sourceID }
+    }
+
+    private var records: [PackageRecord] {
+        store.packageRecords(for: sourceID, matching: query)
+    }
+
+    var body: some View {
+        List {
+            if let source {
+                Section {
+                    LabeledContent("URL", value: source.normalizedURL)
+                    LabeledContent("Layout", value: source.isFlat ? "Flat" : "Dists")
+                    LabeledContent("Suite", value: source.suite)
+                    LabeledContent("Packages", value: "\(store.packageCount(for: sourceID))")
+                    LabeledContent("Updated", value: AuroraFormat.relative(source.lastRefreshed))
+                    if let signature = store.signatureDescription(for: sourceID) {
+                        LabeledContent("Signature", value: signature)
+                    }
+                } header: {
+                    Text("Repository")
+                }
+
+                if let error = store.indexErrors[sourceID] {
+                    Section {
+                        NoticeRow(symbol: "exclamationmark.triangle.fill", text: error, color: .red)
+                    }
+                }
+
+                Section {
+                    if records.isEmpty {
+                        EmptyMessage(
+                            symbol: query.isEmpty ? "shippingbox" : "magnifyingglass",
+                            title: query.isEmpty ? "No packages loaded" : "No matching packages",
+                            message: query.isEmpty
+                                ? "Refresh this repository to download its package index."
+                                : "Try a different package name, identifier, description, or section."
+                        )
+                    } else {
+                        ForEach(records, id: \.self) { record in
+                            NavigationLink {
+                                PackageDetailView(store: store, record: record)
+                            } label: {
+                                PackageRow(record: record, state: store.state(for: record))
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Packages")
+                } footer: {
+                    Text("\(records.count) package\(records.count == 1 ? "" : "s") shown.")
+                }
+            } else {
+                EmptyMessage(
+                    symbol: "exclamationmark.triangle",
+                    title: "Repository removed",
+                    message: "This repository is no longer configured."
+                )
+            }
+        }
+        .navigationTitle(source?.name ?? "Repository")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $query, prompt: "Search this repository")
+        .refreshable {
+            await store.refresh(sourceID: sourceID)
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    Task { await store.refresh(sourceID: sourceID) }
+                } label: {
+                    if store.refreshState.isRefreshing {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .disabled(store.refreshState.isRefreshing || source == nil)
+                .accessibilityLabel("Refresh repository")
             }
         }
     }
