@@ -323,8 +323,17 @@ final class AuroraStore: ObservableObject {
     }
 
     func sourceID(matchingURL url: String) -> UUID? {
-        let normalized = RepositorySource(name: "", url: url).normalizedURL
-        return sources.last(where: { $0.normalizedURL.caseInsensitiveCompare(normalized) == .orderedSame })?.id
+        guard let link = RepositoryLink.parse(url) else { return nil }
+        var normalized = link.url
+        let host = URL(string: normalized)?.host?.lowercased()
+        if host == "apt.procurs.us" {
+            normalized = "https://apt.procurs.us"
+        } else if ["apt.bigboss.org", "apt.thebigboss.org", "thebigboss.org", "bigboss.org"].contains(host ?? "") {
+            normalized = "http://apt.thebigboss.org/repofiles/cydia"
+        }
+        return sources.last(where: {
+            $0.normalizedURL.caseInsensitiveCompare(normalized) == .orderedSame
+        })?.id
     }
 
     func removeSource(id: UUID) {
