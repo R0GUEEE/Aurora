@@ -48,7 +48,10 @@ struct SourcesListView: View {
     }
 
     var body: some View {
-        List {
+        let visibleSources = displayedSources
+        let enabledSourceCount = store.sources.lazy.filter(\.isEnabled).count
+        let exportedSources = store.exportedSources
+        return List {
             if let message = store.sourcesPersistenceError {
                 Section {
                     NoticeRow(symbol: "externaldrive.badge.exclamationmark", text: message, color: .orange)
@@ -62,7 +65,7 @@ struct SourcesListView: View {
                         title: "No repositories",
                         message: "Add a repository by URL, or restore the defaults."
                     )
-                } else if displayedSources.isEmpty {
+                } else if visibleSources.isEmpty {
                     EmptyMessage(
                         symbol: "line.3.horizontal.decrease.circle",
                         title: "No matching repositories",
@@ -70,7 +73,7 @@ struct SourcesListView: View {
                     )
                 } else {
                     // Swipe left to delete, swipe right to refresh one repository.
-                    ForEach(displayedSources) { source in
+                    ForEach(visibleSources) { source in
                         NavigationLink {
                             RepositoryDetailView(store: store, sourceID: source.id)
                         } label: {
@@ -92,9 +95,8 @@ struct SourcesListView: View {
                     .onDelete { offsets in
                         // Capture the ids first: removing a source shifts the
                         // indices of the ones after it.
-                        let visible = displayedSources
                         let ids = offsets.compactMap { offset in
-                            offset < visible.count ? visible[offset].id : nil
+                            offset < visibleSources.count ? visibleSources[offset].id : nil
                         }
                         for id in ids {
                             store.removeSource(id: id)
@@ -105,7 +107,7 @@ struct SourcesListView: View {
                 HStack {
                     Text("Repositories")
                     Spacer()
-                    if isFiltering { Text("\(displayedSources.count) of \(store.sources.count)") }
+                    if isFiltering { Text("\(visibleSources.count) of \(store.sources.count)") }
                 }
             } footer: {
                 Text("\(store.totalPackageCount) packages in the merged index.")
@@ -116,7 +118,7 @@ struct SourcesListView: View {
             }
 
             Section("Repository Health") {
-                LabeledContent("Enabled", value: "\(store.sources.filter(\.isEnabled).count) / \(store.sources.count)")
+                LabeledContent("Enabled", value: "\(enabledSourceCount) / \(store.sources.count)")
                 LabeledContent("Failed", value: "\(store.failedSourceIDs.count)")
                 if store.skippedFailedSourceCount > 0 {
                     LabeledContent("Skipped on bulk refresh", value: "\(store.skippedFailedSourceCount)")
@@ -145,12 +147,12 @@ struct SourcesListView: View {
 
             Section("Transfer") {
                 Button {
-                    exportDocument = TextTransferDocument(text: store.exportedSources)
+                    exportDocument = TextTransferDocument(text: exportedSources)
                     isExportingSources = true
                 } label: {
                     Label("Save Sources to Files", systemImage: "doc.badge.arrow.up")
                 }
-                ShareLink(item: store.exportedSources, subject: Text("Aurora Sources")) {
+                ShareLink(item: exportedSources, subject: Text("Aurora Sources")) {
                     Label("Export Sources", systemImage: "square.and.arrow.up")
                 }
                 Button {
