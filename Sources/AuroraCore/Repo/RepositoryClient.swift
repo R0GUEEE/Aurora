@@ -491,10 +491,17 @@ public actor RepositoryClient {
     /// stanzas actually describe packages. Mirrors sometimes serve an HTML page
     /// with status 200 for missing files.
     static func packageRecords(in data: Data, origin: RepositoryID) -> [PackageRecord] {
-        ControlParser.parse(data).compactMap { stanza in
-            guard stanza.has("Package") else { return nil }
-            return PackageRecord(stanza: stanza, origin: origin)
+        let text = String(decoding: data, as: UTF8.self)
+        var records: [PackageRecord] = []
+        // A typical Packages paragraph is several hundred bytes. Reserving a
+        // conservative fraction avoids repeated growth without grossly
+        // over-allocating on small indexes.
+        records.reserveCapacity(max(8, data.count / 700))
+        ControlParser.forEachStanza(in: text) { stanza in
+            guard stanza.has("Package") else { return }
+            records.append(PackageRecord(stanza: stanza, origin: origin))
         }
+        return records
     }
 
     /// `(path, format)` pairs for one component and architecture, best format first.
