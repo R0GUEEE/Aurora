@@ -215,7 +215,10 @@ public struct PackageIndex: Sendable {
                 results.append(record)
             } else if record.name.lowercased().contains(needle)
                 || record.displayName.lowercased().contains(needle)
-                || record.synopsis.lowercased().contains(needle) {
+                || record.synopsis.lowercased().contains(needle)
+                || record.section.lowercased().contains(needle)
+                || record.author.lowercased().contains(needle)
+                || record.maintainer.lowercased().contains(needle) {
                 results.append(record)
             }
             if results.count >= limit * 4 { break }
@@ -230,8 +233,14 @@ public struct PackageIndex: Sendable {
             }
         }
         return best.values.sorted {
-            if $0.name.lowercased() == needle && $1.name.lowercased() != needle { return true }
-            if $1.name.lowercased() == needle && $0.name.lowercased() != needle { return false }
+            let lID = $0.name.lowercased(), rID = $1.name.lowercased()
+            let lName = $0.displayName.lowercased(), rName = $1.displayName.lowercased()
+            if lID == needle && rID != needle { return true }
+            if rID == needle && lID != needle { return false }
+            if lName == needle && rName != needle { return true }
+            if rName == needle && lName != needle { return false }
+            if lID.hasPrefix(needle) != rID.hasPrefix(needle) { return lID.hasPrefix(needle) }
+            if lName.hasPrefix(needle) != rName.hasPrefix(needle) { return lName.hasPrefix(needle) }
             return Self.isPreferred($0, $1)
         }.prefix(limit).map { $0 }
     }
