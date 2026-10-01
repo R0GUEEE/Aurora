@@ -53,19 +53,28 @@ public struct RepositoryPolicy: Sendable {
     /// separate from the per-request transport timeout so a broken source cannot
     /// consume the worker indefinitely while Aurora probes metadata/index paths.
     public var maximumRefreshSeconds: Int
+    /// Race flat-repository Packages compression variants instead of waiting for
+    /// serial 404/timeouts. Release-backed repositories already advertise the
+    /// valid paths, so they do not need probing.
+    public var parallelFlatIndexScan: Bool
+    public var preferCachedIndexFormat: Bool
 
     public init(
         requireSignature: Bool = false,
         allowFlatUnsigned: Bool = true,
         maximumIndexBytes: Int = 256 * (1 << 20),
         useCache: Bool = true,
-        maximumRefreshSeconds: Int = 45
+        maximumRefreshSeconds: Int = 45,
+        parallelFlatIndexScan: Bool = true,
+        preferCachedIndexFormat: Bool = true
     ) {
         self.requireSignature = requireSignature
         self.allowFlatUnsigned = allowFlatUnsigned
         self.maximumIndexBytes = maximumIndexBytes
         self.useCache = useCache
         self.maximumRefreshSeconds = min(180, max(10, maximumRefreshSeconds))
+        self.parallelFlatIndexScan = parallelFlatIndexScan
+        self.preferCachedIndexFormat = preferCachedIndexFormat
     }
 
     public static let `default` = RepositoryPolicy()
@@ -193,13 +202,58 @@ public actor RepositoryClient {
                 // every supported format. Repositories commonly change Packages.xz
                 // to Packages.gz (or vice versa); pinning the cached format forever
                 // makes a healthy source appear permanently broken.
-                if release == nil,
+                if release == nil, policy.preferCachedIndexFormat,
                    let preferred = await cache?.preferredFormat(for: source.normalizedURL),
                    let position = paths.firstIndex(where: { $0.1 == preferred }) {
                     let hit = paths.remove(at: position)
                     paths.insert(hit, at: 0)
                 }
                 var loaded = false
+
+                if release == nil && policy.parallelFlatIndexScan {
+                    let candidates = paths.compactMap { path, format -> (URL, String, CompressionFormat)? in
+                        guard let indexURL = url(source, path: path) else { return nil }
+                        return (indexURL, path, format)
+                    }
+                    let winner = await withTaskGroup(of: (String, CompressionFormat, Data?, [String]).self) { group in
+                        for (indexURL, path, format) in candidates {
+                            group.addTask {
+                                let outcome = await self.fetch(indexURL: indexURL, checksum: nil)
+                                return (path, format, outcome.data, outcome.warnings)
+                            }
+                        }
+                        var collectedWarnings: [String] = []
+                        while let result = await group.next() {
+                            collectedWarnings.append(contentsOf: result.3)
+                            if let payload = result.2 {
+                                group.cancelAll()
+                                return (result.0, result.1, payload, collectedWarnings)
+                            }
+                        }
+                        return nil
+                    }
+                    if let (path, format, payload, scanWarnings) = winner {
+                        warnings.append(contentsOf: scanWarnings)
+                        tried.append(contentsOf: paths.map(\.0))
+                        do {
+                            let decompressed = try Decompressor.decompress(payload, format: format)
+                            guard decompressed.count <= policy.maximumIndexBytes else {
+                                throw RepositoryError.indexTooLarge(path: path, bytes: decompressed.count)
+                            }
+                            let origin = RepositoryID(url: source.normalizedURL, suite: source.suite, component: component)
+                            records.append(contentsOf: ControlParser.parse(decompressed).compactMap { stanza in
+                                guard stanza.has("Package") else { return nil }
+                                return PackageRecord(stanza: stanza, origin: origin)
+                            })
+                            await cache?.rememberPreferredFormat(format, for: source.normalizedURL)
+                            loaded = true
+                        } catch {
+                            warnings.append("\(path): \(error)")
+                        }
+                    }
+                }
+
+                if !loaded {
                 for (path, format) in paths {
                     tried.append(path)
                     guard let indexURL = url(source, path: path) else { continue }
@@ -243,6 +297,7 @@ public actor RepositoryClient {
                     }
                     loaded = true
                     break
+                }
                 }
                 if !loaded && source.isFlat {
                     // Nothing to add: the caller turns this into a per-source
