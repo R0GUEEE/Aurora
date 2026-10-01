@@ -84,7 +84,13 @@ public struct PackageIndex: Sendable {
         pool.append(contentsOf: providers(of: term.name))
         // A name can appear in both lists if a package provides its own name.
         var seen = Set<String>()
-        pool = pool.filter { seen.insert($0.id).inserted }
+        pool = pool.filter {
+            // Equal name/version/architecture records from different repositories
+            // are distinct candidates because repository policy must be able to
+            // choose between them.
+            let key = "\($0.id)|\($0.origin?.description ?? "")"
+            return seen.insert(key).inserted
+        }
 
         let satisfier = DependencySatisfier(
             nativeArchitecture: architecture,
@@ -99,6 +105,37 @@ public struct PackageIndex: Sendable {
         )
 
         var records = ranked.map(\.record)
+
+        // A direct lookup may explicitly allow a foreign architecture even when
+        // that package is not Multi-Arch: foreign. Dependency resolution always
+        // supplies requestedArchitecture and therefore keeps Debian's stricter
+        // cross-architecture dependency rules.
+        if requestedArchitecture == nil {
+            let directForeign = pool.filter { candidate in
+                guard allowedArchitectures.contains(candidate.architecture) else { return false }
+                guard policy.allows(candidate.name) else { return false }
+                if candidate.name == term.name {
+                    return term.constraint?.isSatisfied(by: candidate.version) ?? true
+                }
+                guard let provided = candidate.relations.provides.first(where: { $0.name == term.name }) else { return false }
+                if let constraint = term.constraint {
+                    guard let version = provided.version else { return false }
+                    return constraint.isSatisfied(by: version)
+                }
+                return true
+            }
+            records.append(contentsOf: directForeign)
+            records = Array(Dictionary(grouping: records, by: {
+                "\($0.id)|\($0.origin?.description ?? "")"
+            }).values.compactMap(\.first))
+            records.sort { lhs, rhs in
+                let order = DebianVersion.compare(lhs.version, rhs.version)
+                if order != 0 { return order > 0 }
+                let lp = policy.priority(of: lhs), rp = policy.priority(of: rhs)
+                if lp != rp { return lp > rp }
+                return (lhs.origin?.description ?? "") < (rhs.origin?.description ?? "")
+            }
+        }
         if let pinned = policy.requiredVersion(for: term.name) {
             records = records.filter { $0.version.raw == pinned }
         }
