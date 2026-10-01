@@ -475,7 +475,7 @@ final class AuroraStore: ObservableObject {
     func refresh(sourceID: UUID) async {
         guard let source = sources.first(where: { $0.id == sourceID }) else { return }
         refreshState = .refreshing(done: 0, total: 1)
-        await refresh(source, using: makeRepositoryClient(useCache: false))
+        await refresh(source, using: makeRepositoryClient(useCache: true))
         refreshState = .idle
         rebuildIndexes()
     }
