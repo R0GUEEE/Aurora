@@ -284,9 +284,9 @@ public actor InstallEngine {
                     }
                 }
                 switch true {
-                case plan.upgraded.contains(where: { $0.name == record_.name }): report.upgraded.append(record_.name)
-                case plan.downgraded.contains(where: { $0.name == record_.name }): report.downgraded.append(record_.name)
-                case plan.reinstalled.contains(where: { $0.name == record_.name }): report.reinstalled.append(record_.name)
+                case plan.upgraded.contains(where: { $0.instanceKey == record_.instanceKey }): report.upgraded.append(record_.qualifiedName)
+                case plan.downgraded.contains(where: { $0.instanceKey == record_.instanceKey }): report.downgraded.append(record_.qualifiedName)
+                case plan.reinstalled.contains(where: { $0.instanceKey == record_.instanceKey }): report.reinstalled.append(record_.qualifiedName)
                 default: report.installed.append(record_.name)
                 }
                 record("unpacked \(record_.name) \(record_.version.raw)")
