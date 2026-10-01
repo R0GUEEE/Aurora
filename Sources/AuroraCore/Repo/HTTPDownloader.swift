@@ -130,7 +130,11 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
 
         let fileManager = FileManager.default
         let directory = (destination as NSString).deletingLastPathComponent
-        try? fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        do {
+            try fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        } catch {
+            throw TransportError.transport(directory, underlying: error)
+        }
         let staging = destination + ".partial"
         try? fileManager.removeItem(atPath: staging)
 
@@ -145,12 +149,27 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             // The delegate owns the temporary file and moves it as it finishes;
             // the URL the async call returns is only a placeholder we ignore.
             (_, response) = try await session.download(for: request, delegate: delegate)
+            if let failure = delegate.failure { throw failure }
         } catch is CancellationError {
             throw CancellationError()
-        } catch let error as URLError where error.code == .cancelled {
+        } catch let error as URLError where error.code == .cancelled && delegate.failure == nil {
             throw CancellationError()
         } catch {
-            throw TransportError.transport(url.absoluteString, underlying: error)
+            // Some jailbreak/runtime combinations return NSURLError -3000...-3005
+            // from URLSessionDownloadTask even though Aurora's cache directory is
+            // writable. In that case bypass CFNetwork's temporary download file
+            // and stream response chunks directly into Aurora's own .partial file.
+            guard Self.shouldFallbackToStreamingDownload(error) else {
+                throw TransportError.transport(url.absoluteString, underlying: error)
+            }
+            try? fileManager.removeItem(atPath: staging)
+            response = try await streamDownload(
+                request: request,
+                originalURL: url,
+                stagingPath: staging,
+                allowCrossOriginRedirects: allowCrossOriginRedirects,
+                progress: progress
+            )
         }
 
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
@@ -174,10 +193,6 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             try? fileManager.removeItem(atPath: staging)
             throw TransportError.invalidURL("cross-origin package redirects must use HTTPS")
         }
-        if let failure = delegate.failure {
-            try? fileManager.removeItem(atPath: staging)
-            throw TransportError.transport(url.absoluteString, underlying: failure)
-        }
         guard fileManager.fileExists(atPath: staging) else {
             throw TransportError.transport(url.absoluteString, underlying: URLError(.cannotWriteToFile))
         }
@@ -186,6 +201,58 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
             try fileManager.moveItem(atPath: staging, toPath: destination)
         } catch {
             throw TransportError.transport(destination, underlying: error)
+        }
+    }
+
+    static func shouldFallbackToStreamingDownload(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        return (-3005 ... -3000).contains(nsError.code)
+    }
+
+    private func streamDownload(
+        request: URLRequest,
+        originalURL: URL,
+        stagingPath: String,
+        allowCrossOriginRedirects: Bool,
+        progress: ((Int64, Int64) -> Void)?
+    ) async throws -> URLResponse {
+        let delegate: StreamingDownloadDelegate
+        do {
+            delegate = try StreamingDownloadDelegate(
+                stagingPath: stagingPath,
+                onProgress: progress,
+                originalURL: originalURL,
+                allowCrossOriginRedirects: allowCrossOriginRedirects
+            )
+        } catch {
+            throw TransportError.transport(stagingPath, underlying: error)
+        }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 3600
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.httpShouldUsePipelining = true
+        config.httpMaximumConnectionsPerHost = 8
+        config.httpAdditionalHeaders = ["User-Agent": Self.userAgent]
+
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 1
+        queue.qualityOfService = .utility
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.start(
+                    request: request,
+                    configuration: config,
+                    delegateQueue: queue,
+                    continuation: continuation
+                )
+            }
+        } onCancel: {
+            delegate.cancel()
         }
     }
 
@@ -294,5 +361,148 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         } catch {
             failure = error
         }
+    }
+}
+
+/// Fallback package downloader that bypasses URLSessionDownloadTask's private
+/// temporary file. It writes response chunks directly to Aurora's staging file,
+/// keeping memory bounded even for very large .deb archives.
+private final class StreamingDownloadDelegate: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate, @unchecked Sendable {
+    private let stagingPath: String
+    private let onProgress: ((Int64, Int64) -> Void)?
+    private let originalURL: URL
+    private let allowCrossOriginRedirects: Bool
+    private let handle: FileHandle
+
+    private var session: URLSession?
+    private var task: URLSessionDataTask?
+    private var continuation: CheckedContinuation<URLResponse, Error>?
+    private var response: URLResponse?
+    private var received: Int64 = 0
+    private var expected: Int64 = NSURLSessionTransferSizeUnknown
+    private var failure: Error?
+    private var completed = false
+
+    init(
+        stagingPath: String,
+        onProgress: ((Int64, Int64) -> Void)?,
+        originalURL: URL,
+        allowCrossOriginRedirects: Bool
+    ) throws {
+        self.stagingPath = stagingPath
+        self.onProgress = onProgress
+        self.originalURL = originalURL
+        self.allowCrossOriginRedirects = allowCrossOriginRedirects
+
+        let manager = FileManager.default
+        try? manager.removeItem(atPath: stagingPath)
+        guard manager.createFile(atPath: stagingPath, contents: nil) else {
+            throw URLError(.cannotCreateFile)
+        }
+        self.handle = try FileHandle(forWritingTo: URL(fileURLWithPath: stagingPath))
+        super.init()
+    }
+
+    func start(
+        request: URLRequest,
+        configuration: URLSessionConfiguration,
+        delegateQueue: OperationQueue,
+        continuation: CheckedContinuation<URLResponse, Error>
+    ) {
+        self.continuation = continuation
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
+        self.session = session
+        let task = session.dataTask(with: request)
+        self.task = task
+        task.resume()
+    }
+
+    func cancel() {
+        task?.cancel()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let target = request.url,
+              let scheme = target.scheme?.lowercased(),
+              (scheme == "http" || scheme == "https"),
+              target.user == nil,
+              target.password == nil else {
+            failure = TransportError.invalidURL("redirected to an unsupported URL")
+            completionHandler(nil)
+            return
+        }
+
+        let sameOrigin = target.scheme?.lowercased() == originalURL.scheme?.lowercased()
+            && target.host?.lowercased() == originalURL.host?.lowercased()
+            && target.port == originalURL.port
+        if sameOrigin {
+            completionHandler(request)
+            return
+        }
+
+        guard allowCrossOriginRedirects, scheme == "https" else {
+            failure = TransportError.invalidURL("cross-origin redirect was not permitted")
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        self.response = response
+        self.expected = response.expectedContentLength
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard failure == nil else { return }
+        do {
+            try handle.write(contentsOf: data)
+            received += Int64(data.count)
+            onProgress?(received, expected)
+        } catch {
+            failure = error
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard !completed else { return }
+        completed = true
+
+        do {
+            try handle.synchronize()
+            try handle.close()
+        } catch {
+            if failure == nil { failure = error }
+        }
+
+        let result: Result<URLResponse, Error>
+        if let failure {
+            result = .failure(failure)
+        } else if let error {
+            result = .failure(error)
+        } else if let response = response ?? task.response {
+            result = .success(response)
+        } else {
+            result = .failure(URLError(.badServerResponse))
+        }
+
+        continuation?.resume(with: result)
+        continuation = nil
+        self.task = nil
+        self.session?.finishTasksAndInvalidate()
+        self.session = nil
     }
 }
