@@ -109,7 +109,8 @@ final class DebArchiveTests: XCTestCase {
         let tar = try Decompressor.decompress(try archive.read(payloadMember),
                                               format: CompressionFormat.detect(fileName: payloadMember.name) ?? .plain)
         XCTAssertEqual(try TarReader.entries(in: tar).filter { $0.type == .regular }.count, summary.files)
-        XCTAssertEqual(Array(try TarReader.entries(in: tar).map(\.name).prefix(2)), [".", "./etc"])
+        XCTAssertEqual(Array(try TarReader.entries(in: tar).map(\.name).prefix(2)), ["./", "./etc/"],
+                       "dpkg-deb writes directory entries with a trailing slash, and the reader reports names verbatim")
     }
 
     // MARK: - Damage

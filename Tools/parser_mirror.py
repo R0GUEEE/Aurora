@@ -12,6 +12,10 @@ FIXTURES = "/var/minis/workspace/Aurora/Tests/AuroraCoreTests/Fixtures/packages"
 
 
 def parse(text):
+    # Swift treats "\r\n" as one grapheme cluster, so the parser normalises line
+    # endings before scanning; the mirror has to do the same to stay faithful.
+    if "\r" in text:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
     stanzas = []
     fields = []
     index = {}

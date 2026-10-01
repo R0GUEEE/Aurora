@@ -183,15 +183,18 @@ public struct DebianVersionConstraint: Hashable, Sendable, CustomStringConvertib
         case laterOrEqual = ">="
         case strictlyLater = ">>"
 
-        /// `dpkg` accepts the single-character forms in dependency fields and
-        /// treats them as the strict/Tilm forms used here.
+        /// `dpkg` accepts the single-character forms in dependency fields, where
+        /// they are **deprecated synonyms**: `<` means `<=` and `>` means `>=`,
+        /// not the strict forms. Only `<<` and `>>` are strict. Reading `<` as
+        /// strict would make a dependency on `< 2.0` refuse version 2.0's
+        /// predecessor's equal, i.e. install the wrong thing.
         init?(rawOperator: String) {
             switch rawOperator {
             case "=": self = .equal
-            case "<<", "<": self = .strictlyEarlier
-            case "<=": self = .earlierOrEqual
-            case ">=": self = .laterOrEqual
-            case ">>", ">": self = .strictlyLater
+            case "<<": self = .strictlyEarlier
+            case "<=", "<": self = .earlierOrEqual
+            case ">=", ">": self = .laterOrEqual
+            case ">>": self = .strictlyLater
             default: return nil
             }
         }

@@ -189,10 +189,10 @@ final class PackageIndexTests: XCTestCase {
     func testSectionsCountsUniqueNamesAndSortsBySize() throws {
         let index = try fixtureIndex()
         let sections = index.sections()
-        XCTAssertEqual(sections.map { $0.name }, ["utils", "tweaks", "mail", "shells", "libs"])
+        XCTAssertEqual(sections.map { $0.name }, ["utils", "mail", "tweaks", "libs", "shells"])
         XCTAssertEqual(sections.map { $0.count }, [8, 2, 2, 1, 1])
         XCTAssertEqual(sections.map { "\($0.name)=\($0.count)" }.joined(separator: ","),
-                       "utils=8,tweaks=2,mail=2,shells=1,libs=1")
+                       "utils=8,mail=2,tweaks=2,libs=1,shells=1")
 
         var unnamed = PackageIndex()
         unnamed.append(record("no-section", "1.0-1"))

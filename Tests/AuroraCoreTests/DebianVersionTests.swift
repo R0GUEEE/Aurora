@@ -149,7 +149,11 @@ final class DebianVersionTests: XCTestCase {
         XCTAssertTrue(DebianVersion("1.0a") > DebianVersion("1.0"), "letters sort above end-of-string")
         XCTAssertTrue(DebianVersion("2.0") < DebianVersion("1:1.0"), "the epoch wins over everything")
         XCTAssertTrue(DebianVersion("1:0.9") < DebianVersion("2:0.1"))
-        XCTAssertEqual(DebianVersion.compare(DebianVersion("1.0"), DebianVersion("1:1.0")), 0)
+        // No epoch means epoch 0, so a version *with* an epoch always wins:
+        // "1.0" and "1:1.0" are not the same version, they only share a shape.
+        XCTAssertEqual(DebianVersion.compare(DebianVersion("1.0"), DebianVersion("1:1.0")), -1)
+        XCTAssertEqual(DebianVersion.compare(DebianVersion("1.0"), DebianVersion("0:1.0")), 0,
+                       "an explicit epoch 0 is the same as none at all")
 
         let shuffled = [DebianVersion("2.0"), DebianVersion("1:0.9"),
                         DebianVersion("1.0~rc1"), DebianVersion("1.0")]
@@ -172,7 +176,8 @@ final class DebianVersionTests: XCTestCase {
 
         let equal = DebianVersionConstraint(relation: .equal, version: one)
         XCTAssertTrue(equal.isSatisfied(by: DebianVersion("1.0")))
-        XCTAssertTrue(equal.isSatisfied(by: DebianVersion("1:1.0")))
+        XCTAssertFalse(equal.isSatisfied(by: DebianVersion("1:1.0")),
+                       "a different epoch is a different version")
         XCTAssertFalse(equal.isSatisfied(by: DebianVersion("1.0-1")))
         XCTAssertFalse(equal.isSatisfied(by: DebianVersion("0.9")))
 

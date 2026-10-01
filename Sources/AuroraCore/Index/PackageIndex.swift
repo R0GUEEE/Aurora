@@ -146,7 +146,12 @@ public struct PackageIndex: Sendable {
             guard seen.insert(record.name).inserted else { continue }
             counts[record.section.isEmpty ? "Uncategorised" : record.section, default: 0] += 1
         }
+        // Most populated first, then alphabetically, so the list is stable and
+        // readable when many sections have the same number of packages.
         return counts.map { (name: $0.key, count: $0.value) }
-            .sorted { ($0.count, $1.name) > ($1.count, $0.name) }
+            .sorted { left, right in
+                if left.count != right.count { return left.count > right.count }
+                return left.name < right.name
+            }
     }
 }

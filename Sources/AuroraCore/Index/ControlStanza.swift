@@ -149,16 +149,30 @@ public enum ControlParser {
     /// (real repositories contain both, and refusing to load an index over one bad
     /// line would be worse than ignoring it).
     public static func parse(_ text: String) -> [ControlStanza] {
+        // Swift treats "\r\n" as a *single* grapheme cluster, so
+        // `firstIndex(of: "\n")` never matches a line ending in a CRLF file and
+        // the whole document would parse as one field. Normalise first: it also
+        // folds lone CRs, which is how files edited on classic Mac line endings
+        // arrive. The byte-level check keeps the common LF-only case allocation
+        // free, since package indexes are megabytes of text.
+        let normalized: String
+        if text.utf8.contains(13) {
+            normalized = text
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+        } else {
+            normalized = text
+        }
+
         var stanzas: [ControlStanza] = []
         var current = ControlStanza()
-        var index = text.startIndex
-        let end = text.endIndex
+        var index = normalized.startIndex
+        let end = normalized.endIndex
 
         while index < end {
-            let lineEnd = text[index...].firstIndex(of: "\n") ?? end
-            var line = text[index..<lineEnd]
-            if line.hasSuffix("\r") { line = line.dropLast() }
-            index = lineEnd == end ? end : text.index(after: lineEnd)
+            let lineEnd = normalized[index...].firstIndex(of: "\n") ?? end
+            let line = normalized[index..<lineEnd]
+            index = lineEnd == end ? end : normalized.index(after: lineEnd)
 
             if line.isEmpty {
                 if !current.isEmpty {

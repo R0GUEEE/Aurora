@@ -45,8 +45,12 @@ final class DependenciesTests: XCTestCase {
             ("x (<< 2.0)", .strictlyEarlier, "2.0"),
             ("x (>> 2.0)", .strictlyLater, "2.0"),
             ("x (= 2.0)", .equal, "2.0"),
-            ("x (< 2.0)", .strictlyEarlier, "2.0"),
-            ("x (> 2.0)", .strictlyLater, "2.0"),
+            // Debian policy: < and > are deprecated synonyms of <= and >=, not
+            // strict comparisons. Only << and >> are strict.
+            ("x (< 2.0)", .earlierOrEqual, "2.0"),
+            ("x (> 2.0)", .laterOrEqual, "2.0"),
+            ("x (<= 2.0)", .earlierOrEqual, "2.0"),
+            ("x (>= 2.0)", .laterOrEqual, "2.0"),
         ]
         for (text, relation, version) in cases {
             let list = DependencyList.parse(text)
