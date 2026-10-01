@@ -287,10 +287,8 @@ struct AuroraSettings: Codable, Equatable {
 
 }
 
-/// Persists `AuroraSettings` next to the repository list.
-///
-/// Lives in the same directory as `AuroraCore.SourceStore`'s file, derived from
-/// it so the two can never disagree about where Aurora's state belongs.
+/// Persists Aurora-only settings in Aurora's private application-data directory.
+/// Repository definitions live separately in APT's sources.list.d on jailbroken devices.
 struct SettingsStore {
     let path: String
 
@@ -299,8 +297,7 @@ struct SettingsStore {
     }
 
     static func defaultPath() -> String {
-        let directory = (SourceStore.defaultPath() as NSString).deletingLastPathComponent
-        return (directory as NSString).appendingPathComponent("settings.json")
+        (SourceStore.applicationDataDirectory() as NSString).appendingPathComponent("settings.json")
     }
 
     struct LoadResult {
