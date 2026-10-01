@@ -153,7 +153,7 @@ public struct DpkgClient: Sendable {
 
     @discardableResult
     public func configure(package: String, onOutput: ((Data) -> Void)? = nil) throws -> ProcessResult {
-        try runChecked(["configure", package], onOutput: onOutput)
+        try runChecked(["--configure", package], onOutput: onOutput)
     }
 
     @discardableResult
