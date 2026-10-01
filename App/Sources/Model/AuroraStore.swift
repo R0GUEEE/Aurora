@@ -108,6 +108,7 @@ final class AuroraStore: ObservableObject {
     /// them. Recomputing a plan touches every loaded record, so it is done when
     /// the queue or the indexes change, never from a view body.
     @Published private(set) var queueAnalysis = QueueAnalysis()
+    @Published private(set) var upgradePlan = UpgradePlanner.Plan()
     @Published var settings = AuroraSettings()
     @Published private(set) var packagePolicy = PackagePolicy.default
     @Published private(set) var policyPersistenceError: String?
@@ -565,7 +566,9 @@ final class AuroraStore: ObservableObject {
         combinedIndex = merged
         sections = Self.buildSections(from: merged, rootlessOnly: filtersRootlessOnly)
         sectionNames = Self.buildSectionNames(from: merged)
-        // The plan depends on which packages are available, so it is stale now.
+        // Derived plans are expensive over large indexes; compute them once when
+        // their inputs change instead of from SwiftUI body evaluation.
+        refreshUpgradePlan()
         refreshQueueAnalysis()
     }
 
@@ -739,8 +742,12 @@ final class AuroraStore: ObservableObject {
         return .installed
     }
 
-    var upgradePlan: UpgradePlanner.Plan {
-        UpgradePlanner(available: combinedIndex, installed: installed, policy: makeResolver().policy).plan()
+    private func refreshUpgradePlan() {
+        upgradePlan = UpgradePlanner(
+            available: combinedIndex,
+            installed: installed,
+            policy: makeResolver().policy
+        ).plan()
     }
 
     /// Whether policy and architecture rules permit a newer candidate.
@@ -944,6 +951,7 @@ final class AuroraStore: ObservableObject {
         }.value
         installed = outcome.database
         installedError = outcome.failure
+        refreshUpgradePlan()
         refreshQueueAnalysis()
     }
 
