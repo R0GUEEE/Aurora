@@ -108,23 +108,63 @@ public struct SourceStore: Sendable {
                 if !names.isEmpty {
                     var collected: [RepositorySource] = []
                     var seen = Set<String>()
+                    var failures: [String] = []
 
                     for name in names {
                         let file = (directory as NSString).appendingPathComponent(name)
-                        let text = try String(contentsOfFile: file, encoding: .utf8)
-                        for parsed in parseDeb822(text) {
-                            var source = parsed
-                            source.sourceFile = file
-                            let key = sourceIdentity(source)
-                            if seen.insert(key).inserted {
-                                collected.append(source)
+                        do {
+                            let text = try String(contentsOfFile: file, encoding: .utf8)
+                            for parsed in parseDeb822(text) {
+                                var source = parsed
+                                source.sourceFile = file
+                                let key = sourceIdentity(source)
+                                if seen.insert(key).inserted {
+                                    collected.append(source)
+                                }
                             }
+                        } catch {
+                            // Match Sileo's best-effort directory scan: one broken
+                            // source file must not hide every other repository.
+                            failures.append("\(name): \(error)")
+                        }
+                    }
+
+                    // Existing rootless installs normally already have
+                    // procursus.sources. If Aurora used its old private
+                    // sileo.sources, migrate those entries even though the APT
+                    // directory is not empty.
+                    let managedExists = manager.fileExists(atPath: path)
+                    if isDefaultStore,
+                       !managedExists,
+                       legacyPrivateSourcePath != path,
+                       manager.fileExists(atPath: legacyPrivateSourcePath) {
+                        do {
+                            let legacyText = try String(
+                                contentsOfFile: legacyPrivateSourcePath,
+                                encoding: .utf8
+                            )
+                            for parsed in parseDeb822(legacyText) {
+                                var source = parsed
+                                source.sourceFile = nil
+                                let key = sourceIdentity(source)
+                                if seen.insert(key).inserted {
+                                    collected.append(source)
+                                }
+                            }
+                            let migrated = RepositoryList(sources: applyState(to: collected))
+                            try save(migrated)
+                            return LoadResult(
+                                list: migrated,
+                                failure: failures.isEmpty ? nil : failures.joined(separator: "; ")
+                            )
+                        } catch {
+                            failures.append("legacy sileo.sources migration: \(error)")
                         }
                     }
 
                     return LoadResult(
                         list: RepositoryList(sources: applyState(to: collected)),
-                        failure: nil
+                        failure: failures.isEmpty ? nil : failures.joined(separator: "; ")
                     )
                 }
             } catch {
