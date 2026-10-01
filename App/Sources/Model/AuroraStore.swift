@@ -341,14 +341,28 @@ final class AuroraStore: ObservableObject {
             ? Self.derivedName(for: url)
             : name.trimmingCharacters(in: .whitespacesAndNewlines)
         candidate.url = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        candidate.suite = suite.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "./" : suite.trimmingCharacters(in: .whitespacesAndNewlines)
-        candidate.components = components.isEmpty ? ["main"] : components
-        candidate.architectures = architectures
+        let oldHost = URL(string: sources[position].normalizedURL)?.host?.lowercased()
+        let newHost = URL(string: candidate.normalizedURL)?.host?.lowercased()
+        if oldHost != newHost {
+            // URL-only editing must not carry hidden layout metadata from the
+            // previous host (for example Procursus suite -> an ordinary flat repo).
+            if newHost == "apt.procurs.us" {
+                candidate.suite = SourceStore.builtInSources.first(where: { $0.normalizedURL.lowercased() == "https://apt.procurs.us" })?.suite ?? "iphoneos-arm64/1800"
+                candidate.components = ["main"]
+            } else if ["apt.bigboss.org", "apt.thebigboss.org", "thebigboss.org", "bigboss.org"].contains(newHost ?? "") {
+                candidate.suite = "stable"
+                candidate.components = ["main"]
+            } else {
+                candidate.suite = "./"
+                candidate.components = []
+            }
+            candidate.architectures = []
+        }
         guard candidate.isValid else { return "Enter a valid http:// or https:// repository URL." }
         let duplicate = sources.contains {
             $0.id != id && $0.normalizedURL.caseInsensitiveCompare(candidate.normalizedURL) == .orderedSame && $0.suite == candidate.suite
         }
-        guard !duplicate else { return "\(candidate.normalizedURL) is already configured for this suite." }
+        guard !duplicate else { return "\(candidate.normalizedURL) is already configured." }
         sources[position] = candidate
         indexErrors[id] = nil
         indexWarnings[id] = nil
