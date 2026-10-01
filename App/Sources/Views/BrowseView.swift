@@ -110,7 +110,7 @@ struct BrowseView: View {
                 case .version:
                     return DebianVersion.compare(lhs.version, rhs.version) > 0
                 case .size:
-                    return lhs.downloadSize > rhs.downloadSize
+                    return (lhs.downloadSize ?? 0) > (rhs.downloadSize ?? 0)
                 }
             }
             return records.isEmpty ? nil : PackageSection(name: section.name, records: records)
