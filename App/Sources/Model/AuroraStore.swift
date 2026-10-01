@@ -569,6 +569,7 @@ final class AuroraStore: ObservableObject {
             }
         }
         combinedIndex = merged
+        updateFirstSeen(from: merged.records)
         sections = Self.buildSections(from: merged, rootlessOnly: filtersRootlessOnly)
         sectionNames = Self.buildSectionNames(from: merged)
         // Derived plans are expensive over large indexes; compute them once when
@@ -678,9 +679,19 @@ final class AuroraStore: ObservableObject {
                 best[record.name] = record
             }
         }
+        return best.values.sorted { lhs, rhs in
+            let ld = userLibrary.firstSeen[firstSeenKey(for: lhs)] ?? .distantPast
+            let rd = userLibrary.firstSeen[firstSeenKey(for: rhs)] ?? .distantPast
+            if ld != rd { return ld > rd }
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }.prefix(limit).map { $0 }
+    }
+
+
+    private func updateFirstSeen(from records: [PackageRecord]) {
         let now = Date()
         var changed = false
-        for record in best.values {
+        for record in records {
             let key = firstSeenKey(for: record)
             if userLibrary.firstSeen[key] == nil {
                 userLibrary.firstSeen[key] = Self.publishedDate(for: record) ?? now
@@ -688,13 +699,6 @@ final class AuroraStore: ObservableObject {
             }
         }
         if changed { persistUserLibrary() }
-
-        return best.values.sorted { lhs, rhs in
-            let ld = userLibrary.firstSeen[firstSeenKey(for: lhs)] ?? .distantPast
-            let rd = userLibrary.firstSeen[firstSeenKey(for: rhs)] ?? .distantPast
-            if ld != rd { return ld > rd }
-            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-        }.prefix(limit).map { $0 }
     }
 
     private func firstSeenKey(for record: PackageRecord) -> String {
