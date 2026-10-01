@@ -201,6 +201,17 @@ struct RepositoryDetailView: View {
         List {
             if let source {
                 Section {
+                    HStack(spacing: 14) {
+                        RepositoryIcon(source: source, size: 64)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(source.name).font(.title3.weight(.semibold))
+                            Text(source.normalizedURL)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                    .padding(.vertical, 4)
                     LabeledContent("URL", value: source.normalizedURL)
                     LabeledContent("Layout", value: source.isFlat ? "Flat" : "Dists")
                     LabeledContent("Suite", value: source.suite)
@@ -326,7 +337,9 @@ struct SourceRow: View {
     @State private var isShowingWarnings = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .top, spacing: 12) {
+            RepositoryIcon(source: source)
+            VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(source.name)
                     .font(.body)
@@ -396,8 +409,9 @@ struct SourceRow: View {
                         .foregroundColor(.orange)
                 }
             }
+            }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 5)
     }
 }
 
