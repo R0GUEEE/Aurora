@@ -528,7 +528,8 @@ final class AuroraStore: ObservableObject {
         let useCache = true
         // Keep a rolling window full instead of waiting for the slowest member of
         // each fixed batch. This removes head-of-line blocking from dead/slow repos.
-        let concurrency = min(settings.refreshConcurrency, enabled.count)
+        let configuredConcurrency = settings.fastRepositoryScan ? max(settings.refreshConcurrency, 12) : settings.refreshConcurrency
+        let concurrency = min(configuredConcurrency, enabled.count)
         let environment = self.environment
         let requireSignature = !settings.ignoreSignatureFailures
         let metadataTimeout = TimeInterval(settings.repositoryTimeoutSeconds)
@@ -544,7 +545,9 @@ final class AuroraStore: ObservableObject {
                         policy: RepositoryPolicy(
                             requireSignature: requireSignature,
                             useCache: useCache,
-                            maximumRefreshSeconds: max(15, Int(metadataTimeout) * 3)
+                            maximumRefreshSeconds: settings.repositoryRefreshDeadlineSeconds,
+                            parallelFlatIndexScan: settings.fastRepositoryScan,
+                            preferCachedIndexFormat: settings.preferCachedIndexFormat
                         )
                     )
                     do {
@@ -637,7 +640,9 @@ final class AuroraStore: ObservableObject {
             policy: RepositoryPolicy(
                 requireSignature: !settings.ignoreSignatureFailures,
                 useCache: useCache,
-                maximumRefreshSeconds: max(15, settings.repositoryTimeoutSeconds * 3)
+                maximumRefreshSeconds: settings.repositoryRefreshDeadlineSeconds,
+                parallelFlatIndexScan: settings.fastRepositoryScan,
+                preferCachedIndexFormat: settings.preferCachedIndexFormat
             )
         )
     }
@@ -1145,6 +1150,21 @@ final class AuroraStore: ObservableObject {
         persistSettings()
     }
 
+    func setFastRepositoryScan(_ value: Bool) {
+        settings.fastRepositoryScan = value
+        persistSettings()
+    }
+
+    func setRepositoryRefreshDeadlineSeconds(_ value: Int) {
+        settings.repositoryRefreshDeadlineSeconds = min(180, max(10, value))
+        persistSettings()
+    }
+
+    func setPreferCachedIndexFormat(_ value: Bool) {
+        settings.preferCachedIndexFormat = value
+        persistSettings()
+    }
+
     func setNewPackageDays(_ value: Int) {
         settings.newPackageDays = min(90, max(1, value))
         persistSettings()
@@ -1204,6 +1224,34 @@ final class AuroraStore: ObservableObject {
         return removed == 0
             ? "Nothing was cached."
             : "Caches cleared. Refresh to load the repositories again."
+    }
+
+    /// Deep-clean repository runtime and disk cache while preserving source
+    /// configuration, installed packages, downloaded .debs and local queue files.
+    func cleanRepositoryData(clearFailures: Bool = true) -> String {
+        let manager = FileManager.default
+        let indexes = environment.cacheDirectory + "/indexes"
+        var bytes: Int64 = 0
+        if let enumerator = manager.enumerator(atPath: indexes) {
+            for case let relative as String in enumerator {
+                let path = (indexes as NSString).appendingPathComponent(relative)
+                if let attrs = try? manager.attributesOfItem(atPath: path),
+                   let size = attrs[.size] as? NSNumber { bytes += size.int64Value }
+            }
+        }
+        try? manager.removeItem(atPath: indexes)
+        try? manager.createDirectory(atPath: indexes, withIntermediateDirectories: true)
+        indexBySource = [:]
+        indexWarnings = [:]
+        signatureStatus = [:]
+        if clearFailures {
+            indexErrors = [:]
+            for index in sources.indices { sources[index].lastError = nil }
+        }
+        for index in sources.indices { sources[index].lastRefreshed = nil }
+        persistSources()
+        rebuildIndexes()
+        return "Repository data cleaned (\(AuroraFormat.bytes(Int(bytes)))). Refresh to rebuild indexes."
     }
 
     /// Remove copied local .deb files that are no longer referenced by the
