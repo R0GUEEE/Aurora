@@ -64,10 +64,25 @@ public struct RepositorySource: Hashable, Sendable, Codable, Identifiable {
         return value
     }
 
-    public var isFlat: Bool { suite == "./" || suite.hasPrefix("./") || suite.isEmpty }
+    /// Sileo-compatible flat detection. Besides the conventional "./" suite,
+    /// legacy source lines frequently use a path-like suite (for example
+    /// "stable/" or "repo/") or simply omit components entirely.
+    public var isFlat: Bool {
+        suite.isEmpty
+            || suite == "./"
+            || suite.hasPrefix("./")
+            || suite.hasSuffix("/")
+            || components.isEmpty
+    }
 
     public var flatPathPrefix: String {
-        suite.hasPrefix("./") ? String(suite.dropFirst(2)) : ""
+        guard isFlat else { return "" }
+        var value = suite.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value == "./" || value.isEmpty { return "" }
+        if value.hasPrefix("./") { value = String(value.dropFirst(2)) }
+        while value.hasPrefix("/") { value.removeFirst() }
+        while value.hasSuffix("/") { value.removeLast() }
+        return value
     }
 
     /// Release metadata location. Traditional dists repositories publish it under
