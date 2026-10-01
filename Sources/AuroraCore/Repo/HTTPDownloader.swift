@@ -38,6 +38,9 @@ public final class HTTPDownloader: NSObject, @unchecked Sendable {
     public func data(for url: URL, headers: [String: String] = [:]) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        // Repository metadata should fail fast. Package downloads use the
+        // session's much longer resource timeout separately.
+        request.timeoutInterval = 12
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         do {
             let (data, response) = try await session.data(for: request)
