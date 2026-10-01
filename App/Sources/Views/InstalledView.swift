@@ -36,12 +36,45 @@ struct InstalledView: View {
             await store.reloadInstalled()
             await store.refreshAll()
         }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    if !updates.isEmpty {
+                        Button {
+                            for record in updates { store.stage(.upgrade(record)) }
+                        } label: {
+                            Label("Upgrade All", systemImage: "arrow.up.circle")
+                        }
+                    }
+                    if !heldPackages.isEmpty {
+                        Button {
+                            for package in heldPackages { store.setHeld(package.name, held: false) }
+                        } label: {
+                            Label("Unhold All", systemImage: "pin.slash")
+                        }
+                    }
+                    if !orphans.isEmpty {
+                        Button(role: .destructive) {
+                            for package in orphans { store.stage(.remove(name: package.name, purge: false)) }
+                        } label: {
+                            Label("Remove All Orphans", systemImage: "trash")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
     }
 
     private var updates: [PackageRecord] {
         store.upgradePlan.upgradable.sorted {
             $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
+    }
+
+    private var heldPackages: [InstalledPackage] {
+        store.installed.present.filter { store.isHeld($0.name) }
     }
 
     private var orphans: [InstalledPackage] {
@@ -98,6 +131,16 @@ struct InstalledView: View {
                         }
                 } else {
                     packageRow(package)
+                        .swipeActions(edge: .leading) {
+                            Button { store.setHeld(package.name, held: !store.isHeld(package.name)) } label: {
+                                Label(store.isHeld(package.name) ? "Unhold" : "Hold", systemImage: "pin")
+                            }
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) { store.stage(.remove(name: package.name, purge: false)) } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                        }
                 }
             }
         } header: { Text("\(packages.count) installed") }
