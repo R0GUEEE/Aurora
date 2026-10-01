@@ -316,7 +316,7 @@ public struct PackageIndex: Sendable {
             let lNamePrefix = lhs.displayName.hasPrefix(needle), rNamePrefix = rhs.displayName.hasPrefix(needle)
             if lNamePrefix != rNamePrefix { return lNamePrefix }
             return Self.isPreferred(lhs.record, rhs.record)
-        }.prefix(limit).map(\.record)
+        }.prefix(limit).map { $0.record }
     }
 
     private static func searchText(for record: PackageRecord) -> String {
