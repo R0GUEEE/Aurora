@@ -71,7 +71,7 @@ enum AppTab: String, CaseIterable, Codable, Identifiable {
         }
     }
 
-    static let defaultTabs: [AppTab] = [.browse, .newPackages, .installed, .sources, .queue]
+    static let defaultTabs: [AppTab] = [.browse, .installed, .sources, .queue, .settings]
 }
 
 /// Everything the Settings screen can change.
@@ -130,13 +130,27 @@ struct AuroraSettings: Codable, Equatable {
             (try? container.decode(Bool.self, forKey: .allowRootfulConversion)) ?? false
         self.depictionPreference =
             (try? container.decode(DepictionPreference.self, forKey: .depictionPreference)) ?? .native
-        self.tabs = Self.sanitizedTabs((try? container.decode([AppTab].self, forKey: .tabs)) ?? AppTab.defaultTabs)
+        let decodedTabs = (try? container.decode([AppTab].self, forKey: .tabs)) ?? AppTab.defaultTabs
+        self.tabs = Self.migratedTabs(decodedTabs)
     }
 
     static func sanitizedTabs(_ tabs: [AppTab]) -> [AppTab] {
         var seen = Set<AppTab>()
         let unique = tabs.filter { seen.insert($0).inserted }
         return unique.isEmpty ? AppTab.defaultTabs : Array(unique.prefix(5))
+    }
+
+    /// Repair layouts written by the first customizable-tab build. That build
+    /// could persist five tabs without Settings, leaving no in-app route back to
+    /// the tab editor.
+    static func migratedTabs(_ tabs: [AppTab]) -> [AppTab] {
+        var result = sanitizedTabs(tabs)
+        guard !result.contains(.settings) else { return result }
+        if result.count >= 5 {
+            result.removeLast()
+        }
+        result.append(.settings)
+        return result
     }
 }
 
