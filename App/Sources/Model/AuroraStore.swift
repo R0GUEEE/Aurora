@@ -266,8 +266,17 @@ final class AuroraStore: ObservableObject {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         do {
+            // Document-picker security scope only lasts for this call. Keep a
+            // private copy so a package staged now is still readable when the
+            // transaction is confirmed later.
+            let directory = URL(fileURLWithPath: environment.cacheDirectory, isDirectory: true)
+                .appendingPathComponent("LocalPackages", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let destination = directory.appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
+            try FileManager.default.copyItem(at: url, to: destination)
+
             let package = try LocalPackageLoader.load(
-                path: url.path,
+                path: destination.path,
                 deviceArchitecture: environment.architecture,
                 requireCompatibleArchitecture: true
             )
