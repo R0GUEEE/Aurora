@@ -150,12 +150,18 @@ public enum ControlParser {
     /// (real repositories contain both, and refusing to load an index over one bad
     /// line would be worse than ignoring it).
     public static func parse(_ text: String) -> [ControlStanza] {
+        var stanzas: [ControlStanza] = []
+        forEachStanza(in: text) { stanzas.append($0) }
+        return stanzas
+    }
+
+    /// Parses one paragraph at a time without retaining an intermediate array.
+    /// Large Packages/status files can therefore be transformed directly into
+    /// their final model objects with substantially lower peak memory.
+    public static func forEachStanza(in text: String, _ body: (ControlStanza) -> Void) {
         // Swift treats "\r\n" as a *single* grapheme cluster, so
         // `firstIndex(of: "\n")` never matches a line ending in a CRLF file and
-        // the whole document would parse as one field. Normalise first: it also
-        // folds lone CRs, which is how files edited on classic Mac line endings
-        // arrive. The byte-level check keeps the common LF-only case allocation
-        // free, since package indexes are megabytes of text.
+        // the whole document would parse as one field. Normalise only when needed.
         let normalized: String
         if text.utf8.contains(13) {
             normalized = text
@@ -165,7 +171,6 @@ public enum ControlParser {
             normalized = text
         }
 
-        var stanzas: [ControlStanza] = []
         var current = ControlStanza()
         var index = normalized.startIndex
         let end = normalized.endIndex
@@ -177,15 +182,13 @@ public enum ControlParser {
 
             if line.isEmpty {
                 if !current.isEmpty {
-                    stanzas.append(current)
+                    body(current)
                     current = ControlStanza()
                 }
                 continue
             }
 
             if line.first == " " || line.first == "\t" {
-                // Continuation of the previous field: strip exactly one leading
-                // space or tab, as dpkg does.
                 current.appendContinuation(String(line.dropFirst()))
                 continue
             }
@@ -197,8 +200,7 @@ public enum ControlParser {
             current[name] = value
         }
 
-        if !current.isEmpty { stanzas.append(current) }
-        return stanzas
+        if !current.isEmpty { body(current) }
     }
 
     public static func parse(_ data: Data) -> [ControlStanza] {
