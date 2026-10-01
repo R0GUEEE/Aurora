@@ -126,6 +126,11 @@ public struct PackageIndex: Sendable {
                 "\($0.id)|\($0.origin?.description ?? "")"
             }).values.compactMap(\.first))
             records.sort { lhs, rhs in
+                // Preserve the dependency rule even in the explicit foreign-
+                // architecture escape hatch: a real package beats a provider.
+                let lDirect = lhs.name == term.name
+                let rDirect = rhs.name == term.name
+                if lDirect != rDirect { return lDirect }
                 let order = DebianVersion.compare(lhs.version, rhs.version)
                 if order != 0 { return order > 0 }
                 let lp = policy.priority(of: lhs), rp = policy.priority(of: rhs)
