@@ -224,6 +224,58 @@ final class AuroraStore: ObservableObject {
         statusMessage = "Removed \(removed.name)."
     }
 
+    func updateSource(
+        id: UUID,
+        name: String,
+        url: String,
+        suite: String,
+        components: [String],
+        architectures: [String]
+    ) -> String? {
+        guard let position = sources.firstIndex(where: { $0.id == id }) else { return "Repository not found." }
+        var candidate = sources[position]
+        candidate.name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? Self.derivedName(for: url)
+            : name.trimmingCharacters(in: .whitespacesAndNewlines)
+        candidate.url = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        candidate.suite = suite.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "./" : suite.trimmingCharacters(in: .whitespacesAndNewlines)
+        candidate.components = components.isEmpty ? ["main"] : components
+        candidate.architectures = architectures
+        guard candidate.isValid else { return "Enter a valid http:// or https:// repository URL." }
+        let duplicate = sources.contains {
+            $0.id != id && $0.normalizedURL.caseInsensitiveCompare(candidate.normalizedURL) == .orderedSame && $0.suite == candidate.suite
+        }
+        guard !duplicate else { return "\(candidate.normalizedURL) is already configured for this suite." }
+        sources[position] = candidate
+        indexErrors[id] = nil
+        indexWarnings[id] = nil
+        signatureStatus[id] = nil
+        persistSources()
+        statusMessage = "Updated \(candidate.name). Refresh it to reload metadata."
+        return nil
+    }
+
+    func clearSourceError(id: UUID) {
+        guard let position = sources.firstIndex(where: { $0.id == id }) else { return }
+        indexErrors[id] = nil
+        indexWarnings[id] = nil
+        sources[position].lastError = nil
+        persistSources()
+    }
+
+    func resetSourceData(id: UUID) {
+        guard let position = sources.firstIndex(where: { $0.id == id }) else { return }
+        indexBySource[id] = nil
+        indexErrors[id] = nil
+        indexWarnings[id] = nil
+        signatureStatus[id] = nil
+        sources[position].lastError = nil
+        sources[position].lastRefreshed = nil
+        persistSources()
+        rebuildIndexes()
+        statusMessage = "Cleared cached state for \(sources[position].name). Refresh to reload it."
+    }
+
     func setSourceEnabled(id: UUID, enabled: Bool) {
         guard let position = sources.firstIndex(where: { $0.id == id }) else { return }
         sources[position].isEnabled = enabled
