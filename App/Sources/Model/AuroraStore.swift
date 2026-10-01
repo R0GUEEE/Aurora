@@ -631,6 +631,7 @@ final class AuroraStore: ObservableObject {
         sources = backup.sources
         settings = backup.settings
         userLibrary = backup.library
+        refreshCollectionNames()
         packagePolicy = backup.policy
         // Runtime repository state belongs to the pre-restore source set. Never
         // merge stale indexes/errors/signatures into a restored configuration,
