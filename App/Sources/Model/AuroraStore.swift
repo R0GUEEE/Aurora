@@ -118,6 +118,7 @@ final class AuroraStore: ObservableObject {
     @Published private(set) var installedError: String?
 
     @Published private(set) var refreshState: RefreshState = .idle
+    @Published private(set) var repositoryRefreshActivity: [UUID: RepositoryRefreshActivity] = [:]
     @Published private(set) var sourcesPersistenceError: String?
     @Published private(set) var settingsPersistenceError: String?
 
@@ -142,6 +143,7 @@ final class AuroraStore: ObservableObject {
     private let settingsStore: SettingsStore
     private let policyStore: PackagePolicy.Store
     private var hasStarted = false
+    private var upgradableNames: Set<String> = []
 
     // MARK: - Lifecycle
 
