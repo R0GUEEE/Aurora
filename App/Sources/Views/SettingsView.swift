@@ -227,6 +227,11 @@ struct SettingsView: View {
             ForEach(store.cacheBreakdown(), id: \.name) { item in
                 DetailRow(label: item.name, value: AuroraFormat.bytes(item.bytes))
             }
+            Button {
+                statusText = store.pruneUnusedLocalPackages()
+            } label: {
+                Label("Clean Unused Local Packages", systemImage: "trash")
+            }
             if let statusText = statusText {
                 Text(statusText)
                     .font(.footnote)
