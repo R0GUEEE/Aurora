@@ -117,7 +117,18 @@ struct QueueView: View {
                     store.recordCompletedTransaction(active.plan)
                     store.clearQueue()
                 }
-                Task { await store.reloadInstalled() }
+                Task {
+                    await store.reloadInstalled()
+                    if report?.succeeded == true {
+                        if store.settings.autoCleanDownloadedPackages {
+                            _ = store.pruneDownloadedPackages()
+                        }
+                        _ = store.pruneUnusedLocalPackages()
+                        if store.settings.refreshAfterTransaction {
+                            await store.refreshAll(forceReload: false)
+                        }
+                    }
+                }
             }
         }
     }
