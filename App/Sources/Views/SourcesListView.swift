@@ -274,7 +274,6 @@ struct RepositoryDetailView: View {
                     .padding(.vertical, 4)
                     LabeledContent("URL", value: source.normalizedURL)
                     LabeledContent("Layout", value: source.isFlat ? "Flat" : "Dists")
-                    LabeledContent("Suite", value: source.suite)
                     LabeledContent("Packages", value: "\(store.packageCount(for: sourceID))")
                     LabeledContent("Updated", value: AuroraFormat.relative(source.lastRefreshed))
                     Stepper(
@@ -451,7 +450,7 @@ struct SourceRow: View {
                 .truncationMode(.middle)
 
             HStack(spacing: 10) {
-                Text(source.isFlat ? "flat · \(source.suite)" : "dists · \(source.suite)")
+                Text(source.isFlat ? "Flat" : "Distribution")
                 Text("\(store.packageCount(for: source.id)) pkgs")
                 Text("refreshed \(AuroraFormat.relative(source.lastRefreshed))")
             }
@@ -528,8 +527,6 @@ struct AddSourceSheet: View {
 
     @State private var urlText = ""
     @State private var name = ""
-    @State private var isFlat = true
-    @State private var suite = "stable"
     @State private var errorMessage: String?
 
     var body: some View {
@@ -544,22 +541,7 @@ struct AddSourceSheet: View {
                 } header: {
                     Text("Repository")
                 } footer: {
-                    Text("Apt sources-style URLs are accepted too; the scheme and host are what matter.")
-                }
-
-                Section {
-                    Toggle("Flat repository", isOn: $isFlat)
-                    if !isFlat {
-                        TextField("Suite (stable, bookworm…)", text: $suite)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                    }
-                } header: {
-                    Text("Layout")
-                } footer: {
-                    Text(isFlat
-                         ? "Flat repositories publish Packages at their root and use the suite “./”. Most jailbreak repositories are flat."
-                         : "A dists repository publishes Release and Packages under dists/<suite>/<component>/binary-<arch>/.")
+                    Text("Enter the repository URL. Aurora treats normal jailbreak repositories as flat and automatically handles known distribution repositories such as Procursus.")
                 }
 
                 if let errorMessage = errorMessage {
@@ -587,7 +569,6 @@ struct AddSourceSheet: View {
     private func add() {
         let message = store.addSource(
             urlText: urlText,
-            suite: isFlat ? "./" : suite,
             name: name
         )
         if let message = message {
@@ -607,9 +588,6 @@ struct EditSourceSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var url: String
-    @State private var suite: String
-    @State private var components: String
-    @State private var architectures: String
     @State private var errorMessage: String?
 
     init(store: AuroraStore, source: RepositorySource) {
@@ -617,9 +595,6 @@ struct EditSourceSheet: View {
         self.source = source
         _name = State(initialValue: source.name)
         _url = State(initialValue: source.url)
-        _suite = State(initialValue: source.suite)
-        _components = State(initialValue: source.components.joined(separator: " "))
-        _architectures = State(initialValue: source.architectures.joined(separator: " "))
     }
 
     var body: some View {
@@ -629,17 +604,6 @@ struct EditSourceSheet: View {
                     TextField("Name", text: $name)
                     TextField("Repository URL", text: $url)
                         .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                }
-                Section("APT Layout") {
-                    TextField("Suite (./ for flat)", text: $suite)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                    TextField("Components (space separated)", text: $components)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                    TextField("Architectures (blank = device defaults)", text: $architectures)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
                 }
@@ -653,16 +617,13 @@ struct EditSourceSheet: View {
                 ToolbarItem(placement: .navigationBarLeading) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
-                        let split: (String) -> [String] = {
-                            $0.split(whereSeparator: { $0.isWhitespace || $0 == "," }).map(String.init)
-                        }
                         if let error = store.updateSource(
                             id: source.id,
                             name: name,
                             url: url,
-                            suite: suite,
-                            components: split(components),
-                            architectures: split(architectures)
+                            suite: source.suite,
+                            components: source.components,
+                            architectures: source.architectures
                         ) {
                             errorMessage = error
                         } else {
