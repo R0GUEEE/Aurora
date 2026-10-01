@@ -1944,9 +1944,13 @@ final class AuroraStore: ObservableObject {
         }
     }
 
-    /// Where the two JSON files live, for the About section.
+    /// Private Aurora state remains separate from the system APT source files.
     var stateDirectoryDescription: String {
-        (sourceStore.path as NSString).deletingLastPathComponent
+        SourceStore.applicationDataDirectory()
+    }
+
+    var sourceDirectoryDescription: String {
+        sourceStore.directory
     }
 
     // MARK: - Naming
