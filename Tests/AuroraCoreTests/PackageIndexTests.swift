@@ -144,6 +144,9 @@ final class PackageIndexTests: XCTestCase {
                                        architecture: "iphoneos-arm64")?.name,
                        "arch-all-tool", "`all` matches any request")
 
+        // An `arm` package does not satisfy an `arm64` request: it is neither the
+        // requested architecture nor foreign nor `all`. Letting it through would
+        // install a binary the device cannot run.
         XCTAssertNil(index.bestMatch(for: DependencyTerm(name: "legacy-tweak"),
                                      architecture: "iphoneos-arm64"),
                      "iphoneos-arm is a different architecture")

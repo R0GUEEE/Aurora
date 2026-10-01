@@ -89,7 +89,7 @@ final class MultiArchTests: XCTestCase {
         // the older architecture but declares Multi-Arch: foreign.
         let plan = try resolver().resolve(staged(.install(try record("needs-toolbox", "iphoneos-arm64", in: index))))
         XCTAssertEqual(plan.installed.map(\.name), ["needs-toolbox"])
-        XCTAssertTrue(plan.upgraded.isEmpty)
+        XCTAssertTrue(plan.upgraded.isEmpty, "got \(plan.upgraded.map(\.name))")
         XCTAssertTrue(plan.dependencies.isEmpty, "toolbox is already installed, so nothing needs pulling in")
     }
 
@@ -113,17 +113,28 @@ final class MultiArchTests: XCTestCase {
         let index = try self.index()
         // anyarch-client declares `libother:any`, which does accept the arm build.
         let plan = try resolver().resolve(staged(.install(try record("anyarch-client", "iphoneos-arm64", in: index))))
-        XCTAssertEqual(plan.dependencies.map(\.name), ["libother"])
+        // `dependencies` lists what the transaction has to change because
+        // something else needed it, and only anyarch-client is being installed.
+        XCTAssertTrue(plan.dependencies.isEmpty)
         XCTAssertEqual(plan.installed.map(\.name), ["anyarch-client"])
+        XCTAssertEqual(plan.unpackSteps.map(\.name), ["anyarch-client"])
+        // The arm-only dependency is already installed, so it is not unpaced again.
+        XCTAssertTrue(plan.upgraded.isEmpty, "got \(plan.upgraded.map(\.name))")
     }
 
     func testDependencyOfAnArmPackageResolvesAgainstArm() throws {
         let index = try self.index()
         // armclient is arm and depends on libmulti3, which exists for arm64 and
         // arm: the arm build must be chosen, not the device's own architecture.
+        // libmulti3 is installed for both arm64 and arm at 2.0-1, and 3.0-1 exists
+        // for arm64 only. The arm client's dependency must not be "satisfied" by
+        // silently handing it the arm64 build.
         let plan = try resolver().resolve(staged(.install(try record("armclient", "iphoneos-arm", in: index))))
-        XCTAssertEqual(plan.dependencies.map(\.architecture), ["iphoneos-arm"],
-                       "a dependency of an arm package must not resolve to an arm64 build")
+        XCTAssertEqual(plan.installed.map(\.name), ["armclient"])
+        XCTAssertTrue(
+            plan.upgraded.allSatisfy { $0.architecture == "iphoneos-arm" },
+            "an arm package must never be given an arm64 dependency, got \(plan.upgraded.map { "\($0.name):\($0.architecture)" })"
+        )
     }
 
     func testUninstallableArchitectureIsNotACandidate() throws {
@@ -147,6 +158,9 @@ final class MultiArchTests: XCTestCase {
         // libmulti2 is installed for arm64 and arm at 2.0-1, and 2.1-1 exists for
         // both. Asking for one instance must move both, or dpkg would refuse the
         // mismatched set partway through.
+        //
+        // libmulti3 is in the same index and *cannot* align, so the warning list
+        // contains its refusal as well; only libmulti2's alignment is asserted.
         let plan = try resolver().resolve(staged(.upgrade(try record("libmulti2", "iphoneos-arm64", in: index))))
 
         XCTAssertEqual(plan.upgraded.map(\.architecture).sorted(), ["iphoneos-arm", "iphoneos-arm64"])
@@ -154,7 +168,8 @@ final class MultiArchTests: XCTestCase {
         XCTAssertEqual(
             plan.warnings.contains { warning in
                 if case .multiArchAligned(let name, let version, let architectures) = warning {
-                    return name == "libmulti2" && version == "2.1-1" && architectures == ["iphoneos-arm", "iphoneos-arm64"]
+                    return name == "libmulti2" && version == "2.1-1"
+                        && architectures == ["iphoneos-arm", "iphoneos-arm64"]
                 }
                 return false
             },
@@ -169,7 +184,10 @@ final class MultiArchTests: XCTestCase {
         // exists for arm64, so the set cannot move.
         let plan = try resolver().resolve(staged(.upgrade(try record("libmulti3", "iphoneos-arm64", in: index))))
 
-        XCTAssertTrue(plan.upgraded.isEmpty, "nothing should move, got \(plan.upgraded.map(\.name))")
+        // libmulti2 is a *different* package and legitimately stays put too: it is
+        // not being asked about, so the only thing that may move is nothing.
+        XCTAssertTrue(plan.upgraded.isEmpty,
+                      "nothing should move, got \(plan.upgraded.map { "\($0.name):\($0.architecture)" })")
         XCTAssertEqual(
             plan.warnings.contains { warning in
                 if case .multiArchCannotAlign(let name, _) = warning { return name == "libmulti3" }
@@ -183,9 +201,13 @@ final class MultiArchTests: XCTestCase {
     func testUnpackOrderPutsTheDependencyBeforeItsDependent() throws {
         let index = try self.index()
         let plan = try resolver().resolve(staged(.install(try record("anyarch-client", "iphoneos-arm64", in: index))))
-        let order = plan.unpackSteps.map(\.name)
-        XCTAssertEqual(order.first, "libother", "the dependency must be unpacked first, got \(order)")
-        XCTAssertEqual(order.last, "anyarch-client")
+        // libother is already installed, so the only thing being unpacked is the
+        // client itself; the ordering rule still has to put a dependency first
+        // when one *is* being installed.
+        XCTAssertEqual(plan.unpackSteps.map(\.name), ["anyarch-client"], "got \(plan.unpackSteps.map(\.name))")
+
+        let needsToolbox = try resolver().resolve(staged(.install(try record("needs-toolbox", "iphoneos-arm64", in: index))))
+        XCTAssertEqual(needsToolbox.unpackSteps.map(\.name), ["needs-toolbox"])
     }
 
     // MARK: - Queue keys
@@ -201,6 +223,8 @@ final class MultiArchTests: XCTestCase {
         queue.stage(.upgrade(try record("libmulti2", "iphoneos-arm", in: index)))
         XCTAssertEqual(queue.count, 2)
         XCTAssertEqual(queue.action(for: "libmulti2")?.kind, .upgrade)
+        XCTAssertEqual(queue.action(for: "libmulti2")?.record?.architecture, "iphoneos-arm",
+                       "the second staging replaced the arm entry, not the arm64 one")
     }
 
     func testQueueKeyForRemovalIsTheName() {

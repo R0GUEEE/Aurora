@@ -31,7 +31,9 @@ final class DiagnosticsTests: XCTestCase {
 
         XCTAssertTrue(report.statusFilePresent)
         XCTAssertEqual(report.installedCount, 7)
-        XCTAssertEqual(report.presentCount, 5, "goneconf is removed and halfbroken is not configured")
+        // bash, coreutils, libfoo1, foo-app, oldapp are present; halfbroken is
+        // present-but-unconfigured and goneconf is only configuration files.
+        XCTAssertEqual(report.presentCount, 6, "goneconf is removed; halfbroken is present but broken")
         XCTAssertEqual(report.pendingConfiguration.map(\.name), ["halfbroken"],
                        "an unpacked-but-unconfigured package is the classic half-finished transaction")
         XCTAssertEqual(report.obsoleteConfiguration.map(\.name), ["goneconf"])

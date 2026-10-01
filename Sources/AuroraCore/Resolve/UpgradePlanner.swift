@@ -23,13 +23,17 @@ public struct UpgradePlanner: Sendable {
         public var isEmpty: Bool { upgradable.isEmpty }
         public var count: Int { upgradable.count }
 
+        /// One line for a header. Only the things that need a decision appear:
+        /// "not in any repository" is a property of the device, not an update, and
+        /// counting it here made "1 update" read as "1 update, 1 problem".
         public var summary: String {
-            var parts: [String] = []
-            if !upgradable.isEmpty { parts.append("\(upgradable.count) update\(upgradable.count == 1 ? "" : "s")") }
+            if upgradable.isEmpty {
+                return held.isEmpty ? "Everything is up to date" : "\(held.count) held back"
+            }
+            var parts = ["\(upgradable.count) update\(upgradable.count == 1 ? "" : "s")"]
             if !held.isEmpty { parts.append("\(held.count) held") }
             if !forbidden.isEmpty { parts.append("\(forbidden.count) forbidden") }
-            if !orphaned.isEmpty { parts.append("\(orphaned.count) not in any repository") }
-            return parts.isEmpty ? "Everything is up to date" : parts.joined(separator: ", ")
+            return parts.joined(separator: ", ")
         }
     }
 
@@ -84,7 +88,11 @@ public struct UpgradePlanner: Sendable {
                     continue
                 }
                 upgradable.append(candidate)
-            } else if comparison < 0, let allowed = policy.packagePolicy.requiredVersion(for: name) {
+            } else if let allowed = policy.packagePolicy.requiredVersion(for: name), allowed != entry.version.raw {
+                // What the pin allows is not what is installed, so the package is
+                // being held somewhere other than where it actually is. Saying so
+                // beats reporting "nothing to do" while a pin quietly disagrees
+                // with the device.
                 pinnedBackwards.append((name: name, installed: entry.version.raw, allowed: allowed))
             }
         }

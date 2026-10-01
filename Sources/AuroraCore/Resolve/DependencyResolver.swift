@@ -163,6 +163,15 @@ private final class Resolution {
     private(set) var errors: [ResolutionError] = []
     private var warnings: [PlanWarning] = []
 
+    /// Which warnings are produced by the alignment pass, so re-running the
+    /// dependency walk does not duplicate them.
+    static func isAlignmentWarning(_ warning: PlanWarning) -> Bool {
+        switch warning {
+        case .multiArchAligned, .multiArchCannotAlign: return true
+        default: return false
+        }
+    }
+
     private var target = TargetSet()
     /// Names the user asked for explicitly.
     private var explicitNames: Set<String> = []
@@ -196,8 +205,14 @@ private final class Resolution {
             // `Multi-Arch: same` set can introduce a version whose own
             // dependencies have not been looked at yet. Two passes are enough for
             // the sets a phone repository produces; a third only repeats work.
+            //
+            // The second pass re-walks the same packages, so its warnings are
+            // dropped rather than duplicated.
             resolveDependencies()
             if errors.isEmpty {
+                // Alignment records into its own list so the repeated dependency
+                // walk below cannot duplicate its warnings.
+                warnings.removeAll { Self.isAlignmentWarning($0) }
                 alignMultiArchSame()
                 if errors.isEmpty { resolveDependencies() }
             }
@@ -288,6 +303,13 @@ private final class Resolution {
     // MARK: - Dependencies
 
     private func resolveDependencies() {
+        // Safe to run more than once: the walk is idempotent, but the *reports* it
+        // produces are not, so the per-walk bookkeeping starts clean.
+        warnings.removeAll { warning in
+            if case .packageProvides = warning { return true }
+            if case .recommendsNotInstalled = warning { return true }
+            return false
+        }
         var pending = target.all.filter { record in
             explicitNames.contains(record.name) || installed.package(named: record.name) != nil
         }
@@ -317,8 +339,12 @@ private final class Resolution {
                 } else {
                     pulledInNames.insert(added.name)
                     inTransaction.insert(added.name)
+                    // Alignment happens once, at the end, for packages the
+                    // transaction actually touches: doing it here would move every
+                    // co-installable instance of a dependency that merely happens
+                    // to be installed.
+                    pending.append(added)
                 }
-                pending.append(added)
             }
 
             if policy.installRecommends {
@@ -350,7 +376,8 @@ private final class Resolution {
             of: clause,
             in: target.all,
             requestedArchitecture: requestedArchitecture,
-            excluding: excludingName
+            excluding: excludingName,
+            policy: policy.packagePolicy
         )
     }
 

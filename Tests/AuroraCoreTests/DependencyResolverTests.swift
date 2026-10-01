@@ -294,7 +294,7 @@ final class DependencyResolverTests: XCTestCase {
         XCTAssertEqual(plan.unpackSteps.map(\.name), ["cyc-b", "cyc-a"],
                        "the cycle is broken at the entry point, deterministically")
         XCTAssertEqual(plan.dependencies.map(\.name), ["cyc-b"])
-        XCTAssertEqual(Set(plan.warnings), [.dependencyCycle(packages: ["cyc-a", "cyc-b"])])
+        XCTAssertEqual(Set(plan.warnings), [.dependencyCycle(packages: ["cyc-a:iphoneos-arm64", "cyc-b:iphoneos-arm64"])])
         XCTAssertEqual(plan.installed.map(\.name), ["cyc-a", "cyc-b"])
     }
 

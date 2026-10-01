@@ -100,11 +100,21 @@ public struct InstalledPackageDatabase: Sendable {
         packages.values.sorted { $0.name < $1.name }
     }
 
+    /// The installed instance for a name and architecture.
+    ///
+    /// The key is ``InstalledPackage/instanceKey`` — a bare name for an
+    /// architecture-independent package, `name:architecture` otherwise — so this
+    /// has to try both spellings before falling back to "any instance of that
+    /// name", which is what an `all` package needs.
     public func package(named name: String, architecture: String? = nil) -> InstalledPackage? {
         if let architecture, architecture != "all" {
             if let exact = packages["\(name):\(architecture)"] { return exact }
         }
-        return packages[name] ?? packages.first(where: { $0.value.name == name })?.value
+        if let plain = packages[name] { return plain }
+        if let architecture, let exact = packages.values.first(where: {
+            $0.name == name && ($0.architecture == architecture || $0.architecture == "all")
+        }) { return exact }
+        return packages.values.first { $0.name == name }
     }
 
     /// The installed instance with that exact instance key (`name:arch`).

@@ -94,7 +94,8 @@ public struct PackageIndex: Sendable {
         let ranked = satisfier.rankedSatisfiers(
             of: DependencyClause(alternatives: [term]),
             in: pool,
-            requestedArchitecture: requested
+            requestedArchitecture: requested,
+            policy: policy
         )
 
         var records = ranked.map(\.record)

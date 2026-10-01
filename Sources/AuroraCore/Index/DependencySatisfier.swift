@@ -133,8 +133,10 @@ public struct DependencySatisfier: Sendable {
     public func rankedSatisfiers(
         of clause: DependencyClause,
         in candidates: [PackageRecord],
-        requestedArchitecture: String
+        requestedArchitecture: String,
+        policy: PackagePolicy? = nil
     ) -> [Ranked] {
+        let effectivePolicy = policy ?? self.policy
         var ranked: [Ranked] = []
         for term in clause.alternatives {
             for candidate in candidates {
@@ -146,13 +148,17 @@ public struct DependencySatisfier: Sendable {
                 guard matches(term, candidate: candidate, requestedArchitecture: requestedArchitecture) else {
                     continue
                 }
+                if let required = effectivePolicy.requiredVersion(for: candidate.name),
+                   required != candidate.version.raw {
+                    continue
+                }
                 ranked.append(Ranked(record: candidate, architectureRank: rank))
             }
             // A satisfier for this alternative exists: alternatives are a
             // preference order, so the later ones are not candidates at all.
             if !ranked.isEmpty { break }
         }
-        return ranked.sorted { Self.isBetter($0, $1, policy: policy) }
+        return ranked.sorted { Self.isBetter($0, $1, policy: effectivePolicy) }
     }
 
     /// The single best satisfier in a set of records, or nil.
@@ -160,10 +166,18 @@ public struct DependencySatisfier: Sendable {
         of clause: DependencyClause,
         in candidates: [PackageRecord],
         requestedArchitecture: String,
-        excluding excludedName: String? = nil
+        excluding excludedName: String? = nil,
+        policy: PackagePolicy? = nil
     ) -> PackageRecord? {
-        let filtered = excludedName.map { name in candidates.filter { $0.name != name } } ?? candidates
-        return rankedSatisfiers(of: clause, in: filtered, requestedArchitecture: requestedArchitecture).first?.record
+        let effectivePolicy = policy ?? self.policy
+        let filtered = (excludedName.map { name in candidates.filter { $0.name != name } } ?? candidates)
+            .filter { effectivePolicy.allows($0.name) }
+        return rankedSatisfiers(
+            of: clause,
+            in: filtered,
+            requestedArchitecture: requestedArchitecture,
+            policy: effectivePolicy
+        ).first?.record
     }
 
     /// The ordering rule, in one place so the index and the resolver cannot drift.
