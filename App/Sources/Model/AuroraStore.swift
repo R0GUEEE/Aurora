@@ -337,10 +337,44 @@ final class AuroraStore: ObservableObject {
             return
         }
         refreshState = .refreshing(done: 0, total: enabled.count)
-        let client = makeRepositoryClient(useCache: !forceReload)
-        for (offset, source) in enabled.enumerated() {
-            await refresh(source, using: client)
-            refreshState = .refreshing(done: offset + 1, total: enabled.count)
+        let useCache = !forceReload
+        let batchSize = 6
+        var completed = 0
+
+        // A dead repository must not block every source after it. Refresh a
+        // bounded number concurrently so 80+ source lists stay responsive
+        // without opening dozens of simultaneous connections on a phone.
+        for start in stride(from: 0, to: enabled.count, by: batchSize) {
+            let end = min(start + batchSize, enabled.count)
+            let batch = Array(enabled[start..<end])
+            await withTaskGroup(of: RefreshOutcome.self) { group in
+                for source in batch {
+                    let environment = self.environment
+                    let requireSignature = !self.settings.ignoreSignatureFailures
+                    group.addTask {
+                        let client = RepositoryClient(
+                            environment: environment,
+                            policy: RepositoryPolicy(
+                                requireSignature: requireSignature,
+                                useCache: useCache
+                            )
+                        )
+                        do {
+                            let result = try await client.refresh(source)
+                            return .success(source.id, result)
+                        } catch {
+                            return .failure(source.id, AuroraFormat.message(for: error))
+                        }
+                    }
+                }
+
+                for await outcome in group {
+                    applyRefreshOutcome(outcome)
+                    completed += 1
+                    refreshState = .refreshing(done: completed, total: enabled.count)
+                }
+            }
+            rebuildIndexes()
         }
         refreshState = .idle
         rebuildIndexes()
@@ -352,6 +386,27 @@ final class AuroraStore: ObservableObject {
         await refresh(source, using: makeRepositoryClient(useCache: false))
         refreshState = .idle
         rebuildIndexes()
+    }
+
+    private enum RefreshOutcome: Sendable {
+        case success(UUID, RepositoryRefresh)
+        case failure(UUID, String)
+    }
+
+    private func applyRefreshOutcome(_ outcome: RefreshOutcome) {
+        switch outcome {
+        case .success(let id, let result):
+            indexBySource[id] = result.index
+            indexErrors[id] = nil
+            indexWarnings[id] = result.warnings
+            signatureStatus[id] = result.signature
+            recordSourceOutcome(id: id, refreshedAt: result.fetchedAt, error: nil)
+        case .failure(let id, let message):
+            indexErrors[id] = message
+            indexWarnings[id] = []
+            signatureStatus[id] = nil
+            recordSourceOutcome(id: id, refreshedAt: nil, error: message)
+        }
     }
 
     private func refresh(_ source: RepositorySource, using client: RepositoryClient) async {
