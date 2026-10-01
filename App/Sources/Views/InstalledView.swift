@@ -86,6 +86,16 @@ struct InstalledView: View {
             ForEach(packages, id: \.key) { package in
                 if let record = store.bestRecord(named: package.name) {
                     NavigationLink { PackageDetailView(store: store, record: record) } label: { packageRow(package) }
+                        .swipeActions(edge: .leading) {
+                            Button { store.setHeld(package.name, held: !store.isHeld(package.name)) } label: {
+                                Label(store.isHeld(package.name) ? "Unhold" : "Hold", systemImage: "pin")
+                            }
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) { store.stage(.remove(name: package.name, purge: false)) } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                        }
                 } else {
                     packageRow(package)
                 }
@@ -98,6 +108,13 @@ struct InstalledView: View {
         Section {
             if packages.isEmpty {
                 EmptyMessage(symbol: "checkmark.circle", title: "No Orphans", message: "Every installed package is available from a configured repository.")
+            }
+            if !packages.isEmpty {
+                Button(role: .destructive) {
+                    for package in packages { store.stage(.remove(name: package.name, purge: false)) }
+                } label: {
+                    Label("Queue Removal of All Orphans", systemImage: "trash")
+                }
             }
             ForEach(packages, id: \.key) { packageRow($0) }
         } header: { Text("\(orphans.count) orphaned") }
@@ -121,7 +138,12 @@ struct InstalledView: View {
     private func packageRow(_ package: InstalledPackage) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(package.record.displayName)
-            Text("\(package.version.raw) · \(package.architecture)")
+            HStack(spacing: 5) {
+                Text("\(package.version.raw) · \(package.architecture)")
+                if store.isHeld(package.name) {
+                    Label("Held", systemImage: "pin.fill")
+                }
+            }
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
