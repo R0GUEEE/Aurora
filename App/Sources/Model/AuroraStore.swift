@@ -578,6 +578,7 @@ final class AuroraStore: ObservableObject {
         var best: [String: PackageRecord] = [:]
         for record in combinedIndex.records {
             if filtersRootlessOnly && !Self.isCompatible(record) { continue }
+            if userLibrary.hiddenPackages.contains(record.name) { continue }
             if let existing = best[record.name] {
                 if DebianVersion.compare(record.version, existing.version) > 0 {
                     best[record.name] = record
@@ -586,15 +587,27 @@ final class AuroraStore: ObservableObject {
                 best[record.name] = record
             }
         }
+        let now = Date()
+        var changed = false
+        for record in best.values {
+            let key = firstSeenKey(for: record)
+            if userLibrary.firstSeen[key] == nil {
+                userLibrary.firstSeen[key] = Self.publishedDate(for: record) ?? now
+                changed = true
+            }
+        }
+        if changed { persistUserLibrary() }
+
         return best.values.sorted { lhs, rhs in
-            let ld = Self.publishedDate(for: lhs)
-            let rd = Self.publishedDate(for: rhs)
-            if let ld, let rd, ld != rd { return ld > rd }
-            if ld != nil && rd == nil { return true }
-            if ld == nil && rd != nil { return false }
-            let order = lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName)
-            return order == .orderedSame ? lhs.name < rhs.name : order == .orderedAscending
+            let ld = userLibrary.firstSeen[firstSeenKey(for: lhs)] ?? .distantPast
+            let rd = userLibrary.firstSeen[firstSeenKey(for: rhs)] ?? .distantPast
+            if ld != rd { return ld > rd }
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }.prefix(limit).map { $0 }
+    }
+
+    private func firstSeenKey(for record: PackageRecord) -> String {
+        "\(record.name)|\(record.version.raw)|\(record.origin?.description ?? "local")"
     }
 
     static func publishedDate(for record: PackageRecord) -> Date? {
@@ -803,6 +816,7 @@ final class AuroraStore: ObservableObject {
         let policy = DependencyResolver.Policy(
             architecture: environment.architecture,
             allowedArchitectures: allowed,
+            packagePolicy: packagePolicy,
             installRecommends: false,
             allowDowngrades: queueContainsDowngrade,
             removeDependentsWithPackage: true,
