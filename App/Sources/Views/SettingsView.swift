@@ -400,7 +400,7 @@ struct StateFilesSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(source.name)
                                 .font(.callout)
-                            Text("\(source.normalizedURL) · suite \(source.suite)")
+                            Text(source.normalizedURL)
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                             Text("\(store.packageCount(for: source.id)) packages · last refresh \(AuroraFormat.relative(source.lastRefreshed))")
